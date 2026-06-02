@@ -1,0 +1,31 @@
+{
+	"schemaVersion": 1,
+	"id": "auto-trade",
+	"version": "${version}",
+	"name": "Auto Trade",
+	"description": "Automatically trade away selected items with one click!",
+	"authors": [
+		"GreeneBolt"
+	],
+	"contact": {
+		"homepage": "https://modrinth.com/user/GreeneBolt",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/auto-trade/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"greenebolt.autotrade.AutoTrade"
+		]
+	},
+	"mixins": [
+		"auto-trade.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.2",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
