@@ -9,7 +9,7 @@
 	],
 	"contact": {
 		"homepage": "https://modrinth.com/user/GreeneBolt",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/greenebolt/auto-trade/tree/main"
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/auto-trade/icon.png",
