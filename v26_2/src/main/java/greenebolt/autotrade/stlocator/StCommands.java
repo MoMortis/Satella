@@ -55,6 +55,7 @@ public final class StCommands {
                         .executes(ctx -> executeLocateStructure(ctx.getSource(), ctx.getArgument("structure", Identifier.class)))))
                 .then(literal("rules")
                     .executes(ctx -> {
+                        StLocator.LOGGER.info("打开多环定位规则编辑器");
                         Minecraft.getInstance().setScreenAndShow(new StRulesEditorScreen(null));
                         return 1;
                     }))
