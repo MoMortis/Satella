@@ -248,6 +248,15 @@ public final class StLocator {
         }
         // 螺旋搜索（同 /locate biome 的步长与半径），在固定 Y 层采样（结构化噪声群系按气候匹配）
         int sampleY = Math.max(worldgen.heightView.getBottomY(), Math.min(64, worldgen.heightView.getTopYInclusive()));
+        var originBiome = worldgen.biomeSource.getBiome(
+            net.minecraft.world.biome.source.BiomeCoords.fromBlock(origin.getX()),
+            net.minecraft.world.biome.source.BiomeCoords.fromBlock(sampleY),
+            net.minecraft.world.biome.source.BiomeCoords.fromBlock(origin.getZ()),
+            worldgen.noiseConfig.getMultiNoiseSampler());
+        LOGGER.info("群系搜索 {}: seed={}, 起点=({},{}) 起点群系={}, 群系源总数={}",
+            biomeKey.getValue(), worldgen.seed, origin.getX(), origin.getZ(),
+            originBiome.getKey().map(k -> k.getValue().toString()).orElse("<动态>"),
+            worldgen.biomeSource.getBiomes().size());
         return worldgen.biomeSource.locateBiome(
             origin.getX(), sampleY, origin.getZ(), 6400, 32,
             entry -> entry.value() == targetBiome,

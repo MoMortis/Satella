@@ -160,6 +160,12 @@ public final class DatapackWorldgen implements AutoCloseable {
             for (var profile : packManager.getEnabledProfiles()) {
                 loadedPacks.add(profile.getId());
             }
+            StLocator.LOGGER.info("世界生成栈已构建: seed={}, 数据包={}, 群系={}, 群系源={}, 结构={}",
+                seed, loadedPacks.size(),
+                dynamic.getOrThrow(RegistryKeys.BIOME).getIds().size(),
+                noiseGenerator.getBiomeSource().getBiomes().size(),
+                dynamic.getOrThrow(RegistryKeys.STRUCTURE).getIds().size());
+            StLocator.LOGGER.info("启用的数据包: {}", String.join(", ", loadedPacks));
 
             // 对外暴露 worldgen 管理器（群系/结构/结构集等都在这里），dimension 结果单独传入
             return new DatapackWorldgen(seed, dynamic, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),

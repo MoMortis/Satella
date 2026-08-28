@@ -182,6 +182,8 @@ public final class DatapackWorldgen implements AutoCloseable {
 
             // createResourceManager 内部已完成 scanPacks 并自动启用数据包目录中的 zip
             List<String> loadedPacks = new ArrayList<>(repo.getSelectedIds());
+            StLocator.LOGGER.info("世界生成栈已构建: seed={}, 数据包={}", seed, loadedPacks.size());
+            StLocator.LOGGER.info("启用的数据包: {}", String.join(", ", loadedPacks));
 
             return new DatapackWorldgen(seed, dimsAccess, generator, randomState, generator.getBiomeSource(),
                 heightView, structureState, templateManager, resources, loadedPacks, registryErrors);
