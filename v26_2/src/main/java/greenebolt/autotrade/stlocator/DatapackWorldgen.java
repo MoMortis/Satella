@@ -1,7 +1,6 @@
 package greenebolt.autotrade.stlocator;
 
 import com.mojang.datafixers.DataFixer;
-import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
@@ -11,13 +10,11 @@ import net.minecraft.resources.RegistryDataLoader;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.RegistryLayer;
-import net.minecraft.server.WorldLoader;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.server.packs.repository.ServerPacksSource;
 import net.minecraft.server.packs.resources.CloseableResourceManager;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.level.LevelHeightAccessor;
-import net.minecraft.world.level.WorldDataConfiguration;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
 import net.minecraft.world.level.dimension.LevelStem;
@@ -41,6 +38,7 @@ import java.util.Optional;
  * 可以完全离线执行。会话目录位于 config/satella 内，EMT 之外不留文件。
  */
 public final class DatapackWorldgen implements AutoCloseable {
+    public final long seed;
     public final RegistryAccess.Frozen registryManager;
     public final NoiseBasedChunkGenerator noiseGenerator;
     public final RandomState randomState;
@@ -54,6 +52,7 @@ public final class DatapackWorldgen implements AutoCloseable {
     private final CloseableResourceManager resources;
 
     private DatapackWorldgen(
+        long seed,
         RegistryAccess.Frozen registryManager,
         NoiseBasedChunkGenerator noiseGenerator,
         RandomState randomState,
@@ -65,6 +64,7 @@ public final class DatapackWorldgen implements AutoCloseable {
         List<String> loadedPacks,
         Map<ResourceKey<?>, Exception> registryErrors
     ) {
+        this.seed = seed;
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
         this.randomState = randomState;
@@ -80,14 +80,23 @@ public final class DatapackWorldgen implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public static DatapackWorldgen load(Path packsDir, DirectoryValidator validator,
                                         LevelStorageSource.LevelStorageAccess session,
-                                        ResourceManager clientResources, DataFixer dataFixer, long seed) throws Exception {
+                                        ResourceManager clientResources, DataFixer dataFixer, long seed,
+                                        List<String> rulePacks) throws Exception {
         CloseableResourceManager resources = null;
         try {
-            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包
+            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包；
+            // 数据包目录的 zip（以 "file/" 开头的 id）按规则选择，其余（原版与模组内置）始终启用
             PackRepository repo = ServerPacksSource.createPackRepository(packsDir, validator);
-            WorldLoader.PackConfig packConfig = new WorldLoader.PackConfig(repo, WorldDataConfiguration.DEFAULT, false, false);
-            Pair<WorldDataConfiguration, CloseableResourceManager> pair = packConfig.createResourceManager();
-            resources = pair.getSecond();
+            repo.reload();
+            java.util.Set<String> enabled = new java.util.LinkedHashSet<>();
+            for (String id : repo.getAvailableIds()) {
+                if (!id.startsWith("file/") || rulePacks.isEmpty() || matchesRulePack(id, rulePacks)) {
+                    enabled.add(id);
+                }
+            }
+            repo.setSelected(enabled);
+            resources = new net.minecraft.server.packs.resources.MultiPackResourceManager(
+                net.minecraft.server.packs.PackType.SERVER_DATA, repo.openAllSelected());
 
             // STATIC 层作为基础查找（方块等原版内置注册表）；Registry 本身就是 RegistryLookup
             List<Registry<?>> staticRegistries = new ArrayList<>();
@@ -174,7 +183,7 @@ public final class DatapackWorldgen implements AutoCloseable {
             // createResourceManager 内部已完成 scanPacks 并自动启用数据包目录中的 zip
             List<String> loadedPacks = new ArrayList<>(repo.getSelectedIds());
 
-            return new DatapackWorldgen(dimsAccess, generator, randomState, generator.getBiomeSource(),
+            return new DatapackWorldgen(seed, dimsAccess, generator, randomState, generator.getBiomeSource(),
                 heightView, structureState, templateManager, resources, loadedPacks, registryErrors);
         } catch (Exception e) {
             // 失败时释放已打开的资源包（zip 句柄）；模板会话由外部持久持有，不受影响
@@ -183,6 +192,21 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
             throw e;
         }
+    }
+
+    /** file/<name>.zip 形式的包 id 是否命中规则里配置的数据包名 */
+    private static boolean matchesRulePack(String packId, List<String> rulePacks) {
+        String name = packId.startsWith("file/") ? packId.substring("file/".length()) : packId;
+        if (name.endsWith(".zip")) {
+            name = name.substring(0, name.length() - 4);
+        }
+        for (String pack : rulePacks) {
+            String p = pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack;
+            if (p.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 用加载完成的注册表构造一个 Frozen RegistryAccess。 */

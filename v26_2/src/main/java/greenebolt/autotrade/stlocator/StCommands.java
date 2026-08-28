@@ -56,10 +56,10 @@ public final class StCommands {
                 .then(literal("reload")
                     .executes(ctx -> {
                         StLocator.reload();
-                        ctx.getSource().sendFeedback(Component.literal("§7正在重新加载数据包 …"));
+                        ctx.getSource().sendFeedback(Component.literal("§7正在重新加载数据包（全部数据包 + 默认种子）…"));
                         CompletableFuture.runAsync(() -> {
                             try {
-                                send(ctx.getSource(), packSummary(StLocator.worldgen()));
+                                send(ctx.getSource(), packSummary(StLocator.worldgen(StLocator.getSeed(), java.util.List.of())));
                             } catch (Exception e) {
                                 StLocator.LOGGER.error("加载数据包失败", e);
                                 send(ctx.getSource(), Component.literal("§c加载失败: " + e.getMessage()));
@@ -80,14 +80,15 @@ public final class StCommands {
 
     private static int executeLocateBiome(FabricClientCommandSource source, Identifier biomeId) {
         if (!StLocator.hasSeed()) {
-            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置种子"));
+            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
             return 0;
         }
         ResourceKey<Biome> biomeKey = ResourceKey.create(Registries.BIOME, biomeId);
-        source.sendFeedback(Component.literal("§7正在搜索群系 " + biomeId + " …"));
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Component.literal("§7" + sel.description() + "，正在搜索群系 " + biomeId + " …"));
         CompletableFuture.runAsync(() -> {
             try {
-                DatapackWorldgen wg = StLocator.worldgen();
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
                 var result = StLocator.findBiome(wg, biomeId, origin(source));
                 if (result == null) {
                     send(source, Component.literal("§c6400 格范围内未找到 " + biomeId));
@@ -105,13 +106,14 @@ public final class StCommands {
 
     private static int executeLocateStructure(FabricClientCommandSource source, Identifier structureId) {
         if (!StLocator.hasSeed()) {
-            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置种子"));
+            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
             return 0;
         }
-        source.sendFeedback(Component.literal("§7正在搜索结构 " + structureId + " …"));
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Component.literal("§7" + sel.description() + "，正在搜索结构 " + structureId + " …"));
         CompletableFuture.runAsync(() -> {
             try {
-                DatapackWorldgen wg = StLocator.worldgen();
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
                 BlockPos pos = StLocator.findStructure(wg, structureId, origin(source));
                 if (pos == null) {
                     send(source, Component.literal("§c范围内未找到 " + structureId + "（结构不存在、不在任何结构集中，或附近群系不匹配）"));

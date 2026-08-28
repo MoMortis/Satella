@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,10 +44,13 @@ public final class StLocator {
     /** 同 LocateCommand 的结构搜索半径 */
     private static final int LOCATE_STRUCTURE_RADIUS = 100;
 
+    /** 未命中环规则时使用的全局默认种子（/st seed 设置，持久化到 st-seed.txt） */
     private static volatile long seed;
     private static volatile boolean seedInitialized;
-    private static volatile DatapackWorldgen worldgen;
     private static Path configDir;
+    /** (种子, 数据包子集) -> 世界生成栈缓存，各建一份互不影响 */
+    private static final java.util.Map<WorldgenKey, DatapackWorldgen> worldgenCache =
+        new java.util.LinkedHashMap<>();
 
     private StLocator() {}
 
@@ -73,9 +77,6 @@ public final class StLocator {
     public static void setSeed(long newSeed, boolean persist) {
         seed = newSeed;
         seedInitialized = true;
-        DatapackWorldgen old = worldgen;
-        worldgen = null;
-        if (old != null) old.close();
         if (persist && configDir != null) {
             try {
                 Path f = configDir.resolve("st-seed.txt");
@@ -105,39 +106,109 @@ public final class StLocator {
         return templateSession;
     }
 
-    /** 获取（必要时构建）世界生成栈；数据包 zip 变化时自动重建。 */
-    public static DatapackWorldgen worldgen() throws Exception {
-        DatapackWorldgen current = worldgen;
-        if (current != null) return current;
-        synchronized (StLocator.class) {
-            if (worldgen != null) return worldgen;
-            Path packsDir = configDir.resolve("datapacks");
-            Files.createDirectories(packsDir);
-            Minecraft client = Minecraft.getInstance();
-            Path sessionRoot = configDir.resolve("st-session");
-            DirectoryValidator validator = LevelStorageSource.parseValidator(sessionRoot.resolve("allowed_symlinks.txt"));
-            DatapackWorldgen built = DatapackWorldgen.load(
-                packsDir,
-                validator,
-                session(client.getFixerUpper()),
-                client.getResourceManager(),
-                client.getFixerUpper(),
-                seed);
-            worldgen = built;
-            return built;
+    /** 单条多环规则：[min, max] 切比雪夫距离环 → 种子 + 数据包子集（空 = 全部） */
+    public record StRule(int min, int max, long seed, List<String> packs) {}
+
+    /** 一次检索选中的配置 */
+    public record Selected(long seed, List<String> packs, String description) {}
+
+    private record WorldgenKey(long seed, List<String> packs) {}
+
+    private static final int CACHE_LIMIT = 6;
+
+    /** 解析 MaLiLib 里的多环规则字符串：最小-最大:种子[:数据包1|数据包2] */
+    public static List<StRule> parseRules(List<String> entries) {
+        List<StRule> rules = new ArrayList<>();
+        for (String entry : entries) {
+            String line = entry.trim();
+            if (line.isEmpty()) continue;
+            try {
+                String[] parts = line.split(":", 3);
+                String[] range = parts[0].split("-");
+                int min = Integer.parseInt(range[0].trim());
+                int max = Integer.parseInt(range[1].trim());
+                long ruleSeed = Long.parseLong(parts[1].trim());
+                List<String> packs = List.of();
+                if (parts.length >= 3 && !parts[2].isBlank()) {
+                    packs = java.util.Arrays.stream(parts[2].split("\\|"))
+                        .map(String::trim).filter(str -> !str.isEmpty()).toList();
+                }
+                rules.add(new StRule(min, max, ruleSeed, packs));
+            } catch (Exception e) {
+                LOGGER.warn("无法解析多环定位规则 \"{}\": {}", line, e.toString());
+            }
         }
+        return rules;
+    }
+
+    /**
+     * 按检索中心到世界原点 (0,0) 的切比雪夫距离选择环规则；
+     * 未命中任何环时回退到全局默认种子 + 全部数据包。
+     */
+    public static Selected select(BlockPos origin) {
+        int dist = Math.max(Math.abs(origin.getX()), Math.abs(origin.getZ()));
+        for (StRule rule : parseRules(greenebolt.autotrade.AutoTradeConfigs.Trade.ST_RULES.getStrings())) {
+            if (dist >= rule.min() && dist <= rule.max()) {
+                return new Selected(rule.seed(), rule.packs(),
+                    "环 " + rule.min() + "-" + rule.max() + "（种子 " + rule.seed() + "，数据包 "
+                        + (rule.packs().isEmpty() ? "全部" : String.join("|", rule.packs())) + "）");
+            }
+        }
+        return new Selected(seed, List.of(),
+            "默认配置（未命中环规则，种子 " + seed + "，数据包全部）");
+    }
+
+    /** 获取（必要时构建）指定种子与数据包子集的世界生成栈，带缓存。 */
+    public static DatapackWorldgen worldgen(long seed, List<String> packs) throws Exception {
+        List<String> keyPacks = packs.stream().map(String::trim).sorted().toList();
+        WorldgenKey key = new WorldgenKey(seed, keyPacks);
+        synchronized (worldgenCache) {
+            DatapackWorldgen cached = worldgenCache.get(key);
+            if (cached != null) {
+                // LRU 触碰
+                worldgenCache.remove(key);
+                worldgenCache.put(key, cached);
+                return cached;
+            }
+        }
+        Path packsDir = configDir.resolve("datapacks");
+        Files.createDirectories(packsDir);
+        Minecraft client = Minecraft.getInstance();
+        Path sessionRoot = configDir.resolve("st-session");
+        DirectoryValidator validator = LevelStorageSource.parseValidator(sessionRoot.resolve("allowed_symlinks.txt"));
+        DatapackWorldgen built = DatapackWorldgen.load(
+            packsDir,
+            validator,
+            session(client.getFixerUpper()),
+            client.getResourceManager(),
+            client.getFixerUpper(),
+            seed,
+            packs);
+        synchronized (worldgenCache) {
+            worldgenCache.put(key, built);
+            while (worldgenCache.size() > CACHE_LIMIT) {
+                WorldgenKey oldest = worldgenCache.keySet().iterator().next();
+                DatapackWorldgen evicted = worldgenCache.remove(oldest);
+                if (evicted != null) evicted.close();
+            }
+        }
+        return built;
     }
 
     public static void reload() {
-        DatapackWorldgen old = worldgen;
-        worldgen = null;
-        if (old != null) old.close();
+        synchronized (worldgenCache) {
+            for (DatapackWorldgen worldgen : worldgenCache.values()) {
+                worldgen.close();
+            }
+            worldgenCache.clear();
+        }
     }
 
-    /** 供指令补全使用：已加载则返回，否则 null（不触发构建）。 */
-    
+    /** 供指令补全使用：任一已缓存的世界生成栈，没有则 null（不触发构建）。 */
     public static DatapackWorldgen peekWorldgen() {
-        return worldgen;
+        synchronized (worldgenCache) {
+            return worldgenCache.values().stream().findFirst().orElse(null);
+        }
     }
 
     /** 最近群系搜索，返回 null 表示半径内没找到。 */
@@ -153,7 +224,7 @@ public final class StLocator {
         return worldgen.biomeSource.findBiomeHorizontal(
             origin.getX(), sampleY, origin.getZ(), 6400, 32,
             holder -> holder.is(biomeKey),
-            RandomSource.create(seed),
+            RandomSource.create(worldgen.seed),
             true,
             worldgen.randomState.sampler());
     }
@@ -202,7 +273,7 @@ public final class StLocator {
                     for (int dx = -k; dx <= k; dx++) {
                         for (int dz = -k; dz <= k; dz++) {
                             if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
-                            ChunkPos start = spread.getPotentialStructureChunk(seed, centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
+                            ChunkPos start = spread.getPotentialStructureChunk(worldgen.seed, centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
                             diag[0]++;
                             BlockPos pos = checkStructureAt(worldgen, structure, placement, start, diag);
                             if (pos != null) {
@@ -217,7 +288,7 @@ public final class StLocator {
             }
         }
         LOGGER.info("结构搜索 {}: seed={}, placements={}, 候选={}, shouldGenerate 通过={}, 位置+群系判定通过={}, 群系失败={}",
-            structureId, seed, placements.size(), diag[0], diag[1], diag[2], diag[3]);
+            structureId, worldgen.seed, placements.size(), diag[0], diag[1], diag[2], diag[3]);
         return best;
     }
 
@@ -233,7 +304,7 @@ public final class StLocator {
             worldgen.biomeSource,
             worldgen.randomState,
             worldgen.templateManager,
-            seed,
+            worldgen.seed,
             chunkPos,
             worldgen.heightView,
             structure.biomes()::contains);

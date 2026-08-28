@@ -14,7 +14,6 @@ import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.registry.RegistryEntryLookup;
 import net.minecraft.block.Block;
 import net.minecraft.registry.tag.TagGroupLoader;
-import net.minecraft.resource.DataConfiguration;
 import net.minecraft.resource.FileResourcePackProvider;
 import net.minecraft.resource.LifecycledResourceManager;
 import net.minecraft.resource.ResourceManager;
@@ -22,7 +21,6 @@ import net.minecraft.resource.ResourcePackManager;
 import net.minecraft.resource.ResourcePackSource;
 import net.minecraft.resource.ResourceType;
 import net.minecraft.resource.VanillaDataPackProvider;
-import net.minecraft.server.SaveLoading;
 import net.minecraft.structure.StructureTemplateManager;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.path.SymlinkFinder;
@@ -51,6 +49,7 @@ import java.util.Map;
  * 并实例化 overworld 噪声生成器，使得任意种子下的群系/结构查询可以完全离线执行。
  */
 public final class DatapackWorldgen implements AutoCloseable {
+    public final long seed;
     public final DynamicRegistryManager.Immutable registryManager;
     public final NoiseChunkGenerator noiseGenerator;
     public final NoiseConfig noiseConfig;
@@ -64,6 +63,7 @@ public final class DatapackWorldgen implements AutoCloseable {
     private final LifecycledResourceManager resourceManager;
 
     private DatapackWorldgen(
+        long seed,
         DynamicRegistryManager.Immutable registryManager,
         NoiseChunkGenerator noiseGenerator,
         NoiseConfig noiseConfig,
@@ -75,6 +75,7 @@ public final class DatapackWorldgen implements AutoCloseable {
         List<String> loadedPacks,
         Map<RegistryKey<?>, Exception> registryErrors
     ) {
+        this.seed = seed;
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
         this.noiseConfig = noiseConfig;
@@ -88,16 +89,26 @@ public final class DatapackWorldgen implements AutoCloseable {
     }
 
     public static DatapackWorldgen load(Path packsDir, SymlinkFinder symlinkFinder, LevelStorage.Session templateSession,
-                                        ResourceManager clientResources, DataFixer dataFixer, long seed) throws Exception {
+                                        ResourceManager clientResources, DataFixer dataFixer, long seed,
+                                        List<String> rulePacks) throws Exception {
         LifecycledResourceManager resourceManager = null;
         try {
-            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包
+            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包；
+            // file/ 前缀的包（数据包目录 zip）按规则选择，其余（原版与模组内置）始终启用
             ResourcePackManager packManager = new ResourcePackManager(
                 new VanillaDataPackProvider(symlinkFinder),
                 new FileResourcePackProvider(packsDir, ResourceType.SERVER_DATA, ResourcePackSource.WORLD, symlinkFinder));
-            Pair<DataConfiguration, LifecycledResourceManager> loaded =
-                new SaveLoading.DataPacks(packManager, DataConfiguration.SAFE_MODE, false, false).load();
-            resourceManager = loaded.getSecond();
+            packManager.scanPacks();
+            java.util.Set<String> enabled = new java.util.LinkedHashSet<>();
+            for (net.minecraft.resource.ResourcePackProfile profile : packManager.getProfiles()) {
+                String id = profile.getId();
+                if (!id.startsWith("file/") || rulePacks.isEmpty() || matchesRulePack(id, rulePacks)) {
+                    enabled.add(id);
+                }
+            }
+            packManager.setEnabledProfiles(enabled);
+            resourceManager = new net.minecraft.resource.LifecycledResourceManagerImpl(
+                ResourceType.SERVER_DATA, packManager.createResourcePacks());
 
             CombinedDynamicRegistries<ServerDynamicRegistryType> combined = ServerDynamicRegistryType.createCombinedDynamicRegistries();
             List<Registry.PendingTagLoad<?>> pendingTags = TagGroupLoader.startReload(
@@ -151,7 +162,7 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
 
             // 对外暴露 worldgen 管理器（群系/结构/结构集等都在这里），dimension 结果单独传入
-            return new DatapackWorldgen(dynamic, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
+            return new DatapackWorldgen(seed, dynamic, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
                 heightView, placementCalculator, templateManager, resourceManager, loadedPacks, registryErrors);
         } catch (Exception e) {
             // 失败时释放已打开的资源包（zip 句柄）；模板会话由外部持久持有，不受影响
@@ -170,6 +181,21 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
         }
         throw new IllegalStateException("Missing static registry: " + key.getValue());
+    }
+
+    /** file/<name>.zip 形式的 profile id 是否命中规则里配置的数据包名 */
+    private static boolean matchesRulePack(String profileId, List<String> rulePacks) {
+        String name = profileId.substring("file/".length());
+        if (name.endsWith(".zip")) {
+            name = name.substring(0, name.length() - 4);
+        }
+        for (String pack : rulePacks) {
+            String p = pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack;
+            if (p.equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dynamic, DynamicRegistryManager.Immutable dimensions) {
