@@ -94,11 +94,18 @@ public final class DatapackWorldgen implements AutoCloseable {
 
             // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
             // 只跳过对应元素，不让整个注册表加载失败
+            // fabric DynamicRegistries（Datapack Registries）注册的模组自定义注册表
+            //（如 lithostitched:fast_noise_config）也要纳入加载，否则其密度函数无法解析
+            List<RegistryDataLoader.RegistryData<?>> worldgenEntries =
+                new ArrayList<>(RegistryDataLoader.WORLDGEN_REGISTRIES);
+            worldgenEntries.addAll(net.fabricmc.fabric.api.event.registry.DynamicRegistries.getWorldRegistries());
+            worldgenEntries.addAll(net.fabricmc.fabric.api.event.registry.DynamicRegistries.getBootstrappingRegistries());
+
             Map<ResourceKey<?>, Exception> registryErrors = new HashMap<>();
             List<Registry<?>> worldgen = TolerantRegistryLoader.load(
-                base, RegistryDataLoader.WORLDGEN_REGISTRIES, resources, registryErrors);
+                base, worldgenEntries, resources, registryErrors);
             for (Map.Entry<ResourceKey<?>, Exception> err : registryErrors.entrySet()) {
-                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().identifier(), err.getValue().toString());
+                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().identifier(), (err.getValue().getCause() != null ? err.getValue().getCause().toString() : err.getValue().toString()));
             }
             List<HolderLookup.RegistryLookup<?>> all = new ArrayList<>(base);
             for (Registry<?> registry : worldgen) {

@@ -102,11 +102,16 @@ public final class DatapackWorldgen implements AutoCloseable {
 
             // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
             // 只跳过对应元素，不让整个注册表加载失败
+            // fabric DynamicRegistries（Datapack Registries）注册的模组自定义注册表
+            //（如 lithostitched:fast_noise_config）也要纳入加载，否则其密度函数无法解析
+            List<RegistryLoader.Entry<?>> dynamicEntries = new ArrayList<>(RegistryLoader.DYNAMIC_REGISTRIES);
+            dynamicEntries.addAll(net.fabricmc.fabric.api.event.registry.DynamicRegistries.getDynamicRegistries());
+
             Map<RegistryKey<?>, Exception> registryErrors = new HashMap<>();
             DynamicRegistryManager.Immutable dynamic = TolerantRegistryLoader.load(
-                resourceManager, wrappers, RegistryLoader.DYNAMIC_REGISTRIES, registryErrors);
+                resourceManager, wrappers, dynamicEntries, registryErrors);
             for (Map.Entry<RegistryKey<?>, Exception> err : registryErrors.entrySet()) {
-                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().getValue(), err.getValue().toString());
+                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().getValue(), (err.getValue().getCause() != null ? err.getValue().getCause().toString() : err.getValue().toString()));
             }
             List<RegistryWrapper.Impl<?>> allWrappers = new ArrayList<>(wrappers);
             dynamic.stream().forEach(allWrappers::add);

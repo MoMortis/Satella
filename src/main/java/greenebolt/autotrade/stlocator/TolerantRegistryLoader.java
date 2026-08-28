@@ -63,18 +63,22 @@ final class TolerantRegistryLoader {
         for (int i = 0; i < entries.size(); i++) {
             loadEntry(resourceManager, getter, entries.get(i), registries.get(i), errors);
         }
+        // freeze 失败（如存在无法解析的悬空引用）时跳过该注册表，避免影响整体加载
+        List<Registry<?>> frozen = new ArrayList<>(registries.size());
         for (SimpleRegistry<?> registry : registries) {
             try {
                 registry.freeze();
+                frozen.add(registry);
             } catch (Exception e) {
                 errors.put(registry.getKey(), e);
             }
         }
-        return new DynamicRegistryManager.ImmutableImpl(new ArrayList<Registry<?>>(registries)).toImmutable();
+        return new DynamicRegistryManager.ImmutableImpl(frozen).toImmutable();
     }
 
     private static <T> RegistryOps.RegistryInfo<T> infoOf(MutableRegistry<T> registry) {
-        return new RegistryOps.RegistryInfo<>(registry, registry, Lifecycle.stable());
+        // 与原版一致使用 createMutableRegistryLookup：允许引用尚未解析的元素（惰性占位 Holder）
+        return new RegistryOps.RegistryInfo<>(registry, registry.createMutableRegistryLookup(), Lifecycle.stable());
     }
 
     private static void loadEntry(

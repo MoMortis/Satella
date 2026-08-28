@@ -14,7 +14,7 @@ dependencies {
     compileOnly files('D:/PCL2/.minecraft/libraries/net/fabricmc/fabric-loader/0.19.3/fabric-loader-0.19.3.jar')
     compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/fabric-api-0.157.0+26.2.jar')
     // fabric-api 是嵌套 jar 结构，client command api 需要单独引用解包后的子 jar
-    compileOnly rootProject.files('build/fa26/fabric-command-api-v2-3.1.0+00cb03469e.jar', 'build/fa26/fabric-api-base-2.0.4+ece063239e.jar')
+    compileOnly rootProject.files('build/fa26/fabric-command-api-v2-3.1.0+00cb03469e.jar', 'build/fa26/fabric-api-base-2.0.4+ece063239e.jar', 'build/fa26/fabric-registry-sync-v0-7.1.0+c7bd5b8e9e.jar')
     compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/malilib-fabric-26.2-0.29.3.jar')
     compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/[物品滚轮] itemscroller-fabric-26.2-0.32.1.jar')
     compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/[模组菜单] modmenu-20.0.1.jar')
