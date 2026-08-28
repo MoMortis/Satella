@@ -117,6 +117,11 @@ public class AutoTradeConfigs implements IConfigHandler {
         INSTANCE.load();
     }
 
+    /** 供规则编辑器等外部界面立即落盘配置 */
+    public static void saveNow() {
+        INSTANCE.save();
+    }
+
     public static boolean isEnabled() {
         return Trade.ENABLED.getBooleanValue();
     }

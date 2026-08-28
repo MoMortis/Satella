@@ -158,6 +158,16 @@ public final class StLocator {
             "默认配置（未命中环规则，种子 " + seed + "，数据包全部）");
     }
 
+    /** 序列化一条规则为字符串（与 parseRules 互逆）：最小-最大:种子[:数据包1|数据包2] */
+    public static String formatRule(StRule rule) {
+        StringBuilder sb = new StringBuilder()
+            .append(rule.min()).append('-').append(rule.max()).append(':').append(rule.seed());
+        if (!rule.packs().isEmpty()) {
+            sb.append(':').append(String.join("|", rule.packs()));
+        }
+        return sb.toString();
+    }
+
     /** 获取（必要时构建）指定种子与数据包子集的世界生成栈，带缓存。 */
     public static DatapackWorldgen worldgen(long seed, List<String> packs) throws Exception {
         List<String> keyPacks = packs.stream().map(String::trim).sorted().toList();
