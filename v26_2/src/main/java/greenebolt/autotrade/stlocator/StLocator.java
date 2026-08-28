@@ -188,15 +188,15 @@ public final class StLocator {
                 }
             } else if (placement instanceof RandomSpreadStructurePlacement spread) {
                 // 网格式：按 spacing 为步长的区域环遍历，同 /locate 的 100 半径
+                // 注意 getPotentialStructureChunk 的入参是区块坐标（内部按 spacing 取模），
+                // 与原版 ChunkGenerator.locateRandomSpreadStructure 一致：中心区块 + spacing*环偏移
                 int spacing = spread.spacing();
-                int baseX = Math.floorDiv(centerChunkX, spacing);
-                int baseZ = Math.floorDiv(centerChunkZ, spacing);
                 outer:
                 for (int k = 0; k <= LOCATE_STRUCTURE_RADIUS; k++) {
                     for (int dx = -k; dx <= k; dx++) {
                         for (int dz = -k; dz <= k; dz++) {
                             if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
-                            ChunkPos start = spread.getPotentialStructureChunk(seed, baseX + dx, baseZ + dz);
+                            ChunkPos start = spread.getPotentialStructureChunk(seed, centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
                             BlockPos pos = checkStructureAt(worldgen, structure, placement, start);
                             if (pos != null) {
                                 double d = pos.distSqr(origin);
