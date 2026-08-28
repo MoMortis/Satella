@@ -259,14 +259,18 @@ public final class StLocator {
 
     /** 最近结构搜索，返回锚点位置；null 表示半径内没找到。 */
     
-    public static BlockPos findStructure(DatapackWorldgen worldgen, Identifier structureId, BlockPos origin) {
+    /** 单结构搜索结果：pos=null 未找到，附诊断计数 */
+    public record StructureFindResult(BlockPos pos, int placements, int candidates,
+                                      int passed, int biomeFails, int validBiomeCount) {}
+
+    public static StructureFindResult findStructure(DatapackWorldgen worldgen, Identifier structureId, BlockPos origin) {
         Registry<Structure> registry = worldgen.registryManager.lookupOrThrow(Registries.STRUCTURE);
         Holder<Structure> entry = registry.getOrThrow(ResourceKey.create(Registries.STRUCTURE, structureId));
         List<StructurePlacement> placements = worldgen.structureState.getPlacementsForStructure(entry);
         if (placements.isEmpty()) {
             LOGGER.info("结构搜索 {}: placements 为空（结构集被群系过滤或未注册），biomeSource.possibleBiomes 数量={}",
                 structureId, worldgen.biomeSource.possibleBiomes().size());
-            return null;
+            return new StructureFindResult(null, 0, 0, 0, 0, 0);
         }
         worldgen.structureState.ensureStructuresGenerated();
 
@@ -317,7 +321,13 @@ public final class StLocator {
         }
         LOGGER.info("结构搜索 {}: seed={}, placements={}, 候选={}, shouldGenerate 通过={}, 位置+群系判定通过={}, 群系失败={}",
             structureId, worldgen.seed, placements.size(), diag[0], diag[1], diag[2], diag[3]);
-        return best;
+        int tagSize;
+        try {
+            tagSize = structure.biomes().size();
+        } catch (Exception e) {
+            tagSize = -1;
+        }
+        return new StructureFindResult(best, placements.size(), diag[0], diag[2], diag[3], tagSize);
     }
 
     

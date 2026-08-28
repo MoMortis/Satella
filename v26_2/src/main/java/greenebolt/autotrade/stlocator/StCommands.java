@@ -125,11 +125,19 @@ public final class StCommands {
         CompletableFuture.runAsync(() -> {
             try {
                 DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
-                BlockPos pos = StLocator.findStructure(wg, structureId, origin(source));
-                if (pos == null) {
-                    send(source, Component.literal("§c范围内未找到 " + structureId + "（结构不存在、不在任何结构集中，或附近群系不匹配）"));
+                StLocator.StructureFindResult result = StLocator.findStructure(wg, structureId, origin(source));
+                if (result.pos() == null) {
+                    String reason;
+                    if (result.placements() == 0) {
+                        reason = "该结构不在任何已加载的结构集中";
+                    } else {
+                        reason = "扫描了 " + result.candidates() + " 个候选区块，群系校验失败 " + result.biomeFails()
+                            + " 个（该结构要求的群系标签解析出 " + result.validBiomeCount() + " 项；若为 0 说明数据包标签未生效）";
+                    }
+                    send(source, Component.literal("§c范围内未找到 " + structureId + "：" + reason));
                     return;
                 }
+                BlockPos pos = result.pos();
                 sendCoordinates(source, pos, structureId.toString());
                 send(source, waypointMessage(StLocator.xaeroWaypoint(structureId.toString(), pos)));
             } catch (Exception e) {
