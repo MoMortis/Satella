@@ -164,8 +164,8 @@ public final class StLocator {
                         + packsDesc(rule.packs()) + "）");
             }
         }
-        return new Selected(seed, List.of(),
-            "默认配置（未命中环规则，种子 " + seed + "，数据包：无）");
+        return new Selected(seed, null,
+            "默认配置（未命中环规则，种子 " + seed + "，数据包：全部）");
     }
 
     /** 序列化一条规则为字符串（与 parseRules 互逆）：最小-最大:种子[:数据包1|数据包2] */
