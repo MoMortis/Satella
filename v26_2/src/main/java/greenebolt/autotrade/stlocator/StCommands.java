@@ -1,5 +1,6 @@
 package greenebolt.autotrade.stlocator;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
@@ -17,6 +18,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.structure.Structure;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommands.argument;
@@ -130,6 +132,68 @@ public final class StCommands {
                 sendCoordinates(source, pos, structureId.toString());
             } catch (Exception e) {
                 StLocator.LOGGER.error("结构搜索失败", e);
+                send(source, Component.literal("§c搜索失败: " + e.getMessage()));
+            }
+        });
+        return 1;
+    }
+
+    private static int executeAnyStructure(FabricClientCommandSource source, int limit) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
+            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
+            return 0;
+        }
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Component.literal("§7" + sel.description() + "，正在搜索最近的 " + limit + " 个结构 …"));
+        CompletableFuture.runAsync(() -> {
+            try {
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
+                List<StLocator.StructureHit> hits = StLocator.findNearestStructures(wg, origin(source), limit);
+                if (hits.isEmpty()) {
+                    send(source, Component.literal("§c范围内未找到任何结构"));
+                    return;
+                }
+                StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 个结构：");
+                for (StLocator.StructureHit hit : hits) {
+                    sb.append("
+§7- §f").append(hit.id())
+                        .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
+                        .append(" §7(距离 ").append(hit.distance()).append(" 格)");
+                }
+                send(source, Component.literal(sb.toString()));
+            } catch (Exception e) {
+                StLocator.LOGGER.error("就近结构搜索失败", e);
+                send(source, Component.literal("§c搜索失败: " + e.getMessage()));
+            }
+        });
+        return 1;
+    }
+
+    private static int executeAnyBiome(FabricClientCommandSource source, int limit) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
+            source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
+            return 0;
+        }
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Component.literal("§7" + sel.description() + "，正在搜索最近的 " + limit + " 种群系 …"));
+        CompletableFuture.runAsync(() -> {
+            try {
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
+                List<StLocator.BiomeHit> hits = StLocator.findNearestBiomes(wg, origin(source), limit);
+                if (hits.isEmpty()) {
+                    send(source, Component.literal("§c范围内未找到任何群系"));
+                    return;
+                }
+                StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 种群系：");
+                for (StLocator.BiomeHit hit : hits) {
+                    sb.append("
+§7- §f").append(hit.id())
+                        .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
+                        .append(" §7(距离 ").append(hit.distance()).append(" 格)");
+                }
+                send(source, Component.literal(sb.toString()));
+            } catch (Exception e) {
+                StLocator.LOGGER.error("就近群系搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
             }
         });

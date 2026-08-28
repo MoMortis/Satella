@@ -21,6 +21,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.biome.Biome;
 import net.minecraft.world.gen.structure.Structure;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
@@ -57,6 +59,14 @@ public final class StCommands {
                     .then(argument("structure", IdentifierArgumentType.identifier())
                         .suggests(StCommands::suggestStructures)
                         .executes(ctx -> executeLocateStructure(ctx.getSource(), ctx.getArgument("structure", Identifier.class)))))
+                .then(literal("anystructure")
+                    .executes(ctx -> executeAnyStructure(ctx.getSource(), 5))
+                    .then(argument("数量", IntegerArgumentType.integer(1, 10))
+                        .executes(ctx -> executeAnyStructure(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "数量")))))
+                .then(literal("anybiome")
+                    .executes(ctx -> executeAnyBiome(ctx.getSource(), 8))
+                    .then(argument("数量", IntegerArgumentType.integer(1, 16))
+                        .executes(ctx -> executeAnyBiome(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "数量")))))
                 .then(literal("rules")
                     .executes(ctx -> {
                         StLocator.LOGGER.info("打开多环定位规则编辑器");
@@ -135,6 +145,66 @@ public final class StCommands {
                 sendCoordinates(source, pos, structureId.toString(), true);
             } catch (Exception e) {
                 StLocator.LOGGER.error("结构搜索失败", e);
+                send(source, StLocator.error("搜索失败: " + e.getMessage()));
+            }
+        });
+        return 1;
+    }
+
+    private static int executeAnyStructure(FabricClientCommandSource source, int limit) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
+            source.sendError(StLocator.error("请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
+            return 0;
+        }
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Text.literal("§7" + sel.description() + "，正在搜索最近的 " + limit + " 个结构 …"));
+        CompletableFuture.runAsync(() -> {
+            try {
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
+                List<StLocator.StructureHit> hits = StLocator.findNearestStructures(wg, origin(source), limit);
+                if (hits.isEmpty()) {
+                    send(source, StLocator.error("范围内未找到任何结构"));
+                    return;
+                }
+                StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 个结构：");
+                for (StLocator.StructureHit hit : hits) {
+                    sb.append("\n§7- §f").append(hit.id())
+                        .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
+                        .append(" §7(距离 ").append(hit.distance()).append(" 格)");
+                }
+                send(source, Text.literal(sb.toString()));
+            } catch (Exception e) {
+                StLocator.LOGGER.error("就近结构搜索失败", e);
+                send(source, StLocator.error("搜索失败: " + e.getMessage()));
+            }
+        });
+        return 1;
+    }
+
+    private static int executeAnyBiome(FabricClientCommandSource source, int limit) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
+            source.sendError(StLocator.error("请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
+            return 0;
+        }
+        StLocator.Selected sel = StLocator.select(origin(source));
+        source.sendFeedback(Text.literal("§7" + sel.description() + "，正在搜索最近的 " + limit + " 种群系 …"));
+        CompletableFuture.runAsync(() -> {
+            try {
+                DatapackWorldgen wg = StLocator.worldgen(sel.seed(), sel.packs());
+                List<StLocator.BiomeHit> hits = StLocator.findNearestBiomes(wg, origin(source), limit);
+                if (hits.isEmpty()) {
+                    send(source, StLocator.error("范围内未找到任何群系"));
+                    return;
+                }
+                StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 种群系：");
+                for (StLocator.BiomeHit hit : hits) {
+                    sb.append("\n§7- §f").append(hit.id())
+                        .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
+                        .append(" §7(距离 ").append(hit.distance()).append(" 格)");
+                }
+                send(source, Text.literal(sb.toString()));
+            } catch (Exception e) {
+                StLocator.LOGGER.error("就近群系搜索失败", e);
                 send(source, StLocator.error("搜索失败: " + e.getMessage()));
             }
         });

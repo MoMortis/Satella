@@ -19,6 +19,7 @@ import net.minecraft.world.gen.chunk.placement.RandomSpreadStructurePlacement;
 import net.minecraft.world.gen.chunk.placement.StructurePlacement;
 import net.minecraft.world.gen.structure.Structure;
 import net.minecraft.world.level.storage.LevelStorage;
+import net.minecraft.structure.StructureSet;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -322,11 +323,11 @@ public final class StLocator {
     }
 
     @Nullable
-    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos, int[] diag) {
+    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos, @Nullable int[] diag) {
         if (!placement.shouldGenerate(worldgen.placementCalculator, chunkPos.x, chunkPos.z)) {
             return null;
         }
-        diag[1]++;
+        if (diag != null) diag[1]++;
         Structure.Context context = new Structure.Context(
             worldgen.registryManager,
             worldgen.noiseGenerator,
@@ -339,11 +340,121 @@ public final class StLocator {
             structure.getValidBiomes()::contains);
         Optional<Structure.StructurePosition> position = structure.getValidStructurePosition(context);
         if (position.isPresent()) {
-            diag[2]++;
+            if (diag != null) diag[2]++;
             return placement.getLocatePos(chunkPos);
         }
-        diag[3]++;
+        if (diag != null) diag[3]++;
         return null;
+    }
+
+    /** 就近结构命中：结构 id + 锚点坐标 + 水平距离 */
+    public record StructureHit(Identifier id, BlockPos pos, int distance) {}
+
+    /**
+     * 在全部结构集中搜索离 origin 最近的 {@code limit} 个结构（跨结构类型）。
+     * 与 /locate 相同：结构集 placement 粗筛 + getValidStructurePosition 精判，扫描半径 100 环。
+     */
+    public static List<StructureHit> findNearestStructures(DatapackWorldgen worldgen, BlockPos origin, int limit) {
+        Registry<Structure> structureRegistry = worldgen.registryManager.getOrThrow(RegistryKeys.STRUCTURE);
+        List<StructureHit> hits = new ArrayList<>();
+        int centerChunkX = origin.getX() >> 4;
+        int centerChunkZ = origin.getZ() >> 4;
+
+        for (RegistryEntry<StructureSet> setEntry : worldgen.registryManager
+                .getOrThrow(RegistryKeys.STRUCTURE_SET).streamEntries().toList()) {
+            StructureSet set = setEntry.value();
+            for (StructureSet.WeightedEntry weighted : set.structures()) {
+                RegistryEntry<Structure> structureEntry = weighted.structure();
+                List<StructurePlacement> placements = worldgen.placementCalculator.getPlacements(structureEntry);
+                if (placements.isEmpty()) continue;
+                Structure structure = structureEntry.value();
+                Identifier id = structureRegistry.getId(structure);
+                if (id == null) continue;
+
+                for (StructurePlacement placement : placements) {
+                    collectPlacementHits(worldgen, structure, id, placement, centerChunkX, centerChunkZ, origin, hits);
+                }
+            }
+        }
+
+        hits.sort((a, b) -> Integer.compare(a.distance(), b.distance()));
+        return hits.size() > limit ? new ArrayList<>(hits.subList(0, limit)) : hits;
+    }
+
+    private static void collectPlacementHits(DatapackWorldgen worldgen, Structure structure, Identifier id,
+                                             StructurePlacement placement, int centerChunkX, int centerChunkZ,
+                                             BlockPos origin, List<StructureHit> hits) {
+        if (placement instanceof ConcentricRingsStructurePlacement concentric) {
+            List<ChunkPos> positions = worldgen.placementCalculator.getPlacementPositions(concentric);
+            if (positions == null) return;
+            for (ChunkPos chunkPos : positions) {
+                BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos, null);
+                if (pos != null) {
+                    hits.add(new StructureHit(id, pos, horizontalDistance(pos, origin)));
+                }
+            }
+        } else if (placement instanceof RandomSpreadStructurePlacement spread) {
+            int spacing = spread.getSpacing();
+            for (int k = 0; k <= LOCATE_STRUCTURE_RADIUS; k++) {
+                for (int dx = -k; dx <= k; dx++) {
+                    for (int dz = -k; dz <= k; dz++) {
+                        if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
+                        ChunkPos start = spread.getStartChunk(worldgen.seed,
+                            centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
+                        BlockPos pos = checkStructureAt(worldgen, structure, placement, start, null);
+                        if (pos != null) {
+                            hits.add(new StructureHit(id, pos, horizontalDistance(pos, origin)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static int horizontalDistance(BlockPos a, BlockPos b) {
+        int dx = a.getX() - b.getX();
+        int dz = a.getZ() - b.getZ();
+        return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
+    }
+
+    /** 就近群系命中：群系 id + 位置 + 切比雪夫距离 */
+    public record BiomeHit(Identifier id, BlockPos pos, int distance) {}
+
+    /**
+     * 以 origin 为中心螺旋扫描（32 格步长，6400 半径，同 /locate biome），
+     * 返回最近的 {@code limit} 种不同群系及首次出现位置（按切比雪夫距离排序）。
+     */
+    public static List<BiomeHit> findNearestBiomes(DatapackWorldgen worldgen, BlockPos origin, int limit) {
+        Registry<Biome> biomeRegistry = worldgen.registryManager.getOrThrow(RegistryKeys.BIOME);
+        List<BiomeHit> hits = new ArrayList<>();
+        int sampleY = Math.max(worldgen.heightView.getBottomY(), Math.min(64, worldgen.heightView.getTopYInclusive()));
+        var sampler = worldgen.noiseConfig.getMultiNoiseSampler();
+
+        for (int r = 0; r <= 6400 && hits.size() < limit; r += 32) {
+            // 切比雪夫距离环：|dx|==r 或 |dz|==r；同环内所有首次出现的群系距离相同
+            for (int dx = -r; dx <= r; dx += 32) {
+                for (int dz = -r; dz <= r; dz += 32) {
+                    if (r != 0 && Math.abs(dx) != r && Math.abs(dz) != r) continue;
+                    int x = origin.getX() + dx;
+                    int z = origin.getZ() + dz;
+                    var entry = worldgen.biomeSource.getBiome(
+                        net.minecraft.world.biome.source.BiomeCoords.fromBlock(x),
+                        net.minecraft.world.biome.source.BiomeCoords.fromBlock(sampleY),
+                        net.minecraft.world.biome.source.BiomeCoords.fromBlock(z),
+                        sampler);
+                    Identifier id = biomeRegistry.getId(entry.value());
+                    if (id == null) continue;
+                    boolean seen = false;
+                    for (BiomeHit hit : hits) {
+                        if (hit.id().equals(id)) { seen = true; break; }
+                    }
+                    if (!seen) {
+                        hits.add(new BiomeHit(id, new BlockPos(x, sampleY, z), r));
+                    }
+                }
+            }
+        }
+        return hits;
     }
 
     public static Text error(String message) {

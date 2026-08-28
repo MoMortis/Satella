@@ -325,7 +325,7 @@ public final class StLocator {
         if (!placement.isStructureChunk(worldgen.structureState, chunkPos.x(), chunkPos.z())) {
             return null;
         }
-        diag[1]++;
+        if (diag != null) diag[1]++;
         Structure.GenerationContext context = new Structure.GenerationContext(
             worldgen.registryManager,
             worldgen.noiseGenerator,
@@ -343,15 +343,125 @@ public final class StLocator {
                 Holder<Biome> biome = worldgen.biomeSource.getNoiseBiome(
                     p.getX() >> 2, p.getY() >> 2, p.getZ() >> 2, worldgen.randomState.sampler());
                 if (!structure.biomes().contains(biome)) {
-                    diag[3]++;
+                    if (diag != null) diag[3]++;
                     return null;
                 }
-                diag[2]++;
+                if (diag != null) diag[2]++;
                 return placement.getLocatePos(chunkPos);
             })
             .orElseGet(() -> {
-                diag[3]++;
+                if (diag != null) diag[3]++;
                 return null;
             });
+    }
+
+    /** 就近结构命中：结构 id + 锚点坐标 + 水平距离 */
+    public record StructureHit(Identifier id, BlockPos pos, int distance) {}
+
+    /**
+     * 在全部结构集中搜索离 origin 最近的 limit 个结构（跨结构类型）。
+     * 结构集 placement 粗筛 + findValidGenerationPoint 精判，扫描半径 100 环。
+     */
+    public static List<StructureHit> findNearestStructures(DatapackWorldgen worldgen, BlockPos origin, int limit) {
+        Registry<Structure> structureRegistry = worldgen.registryManager.lookupOrThrow(Registries.STRUCTURE);
+        List<StructureHit> hits = new ArrayList<>();
+        int centerChunkX = origin.getX() >> 4;
+        int centerChunkZ = origin.getZ() >> 4;
+
+        for (Holder<net.minecraft.world.level.levelgen.structure.StructureSet> setHolder
+                : worldgen.registryManager.lookupOrThrow(Registries.STRUCTURE_SET)) {
+            for (net.minecraft.world.level.levelgen.structure.StructureSet.StructureSelectionEntry weighted
+                    : setHolder.value().structures()) {
+                Holder<Structure> structureEntry = weighted.structure();
+                List<StructurePlacement> placements = worldgen.structureState.getPlacementsForStructure(structureEntry);
+                if (placements.isEmpty()) continue;
+                Structure structure = structureEntry.value();
+                Identifier id = structureRegistry.getKey(structure);
+                if (id == null) continue;
+
+                for (StructurePlacement placement : placements) {
+                    collectPlacementHits(worldgen, structure, id, placement, centerChunkX, centerChunkZ, origin, hits);
+                }
+            }
+        }
+
+        hits.sort((a, b) -> Integer.compare(a.distance(), b.distance()));
+        return hits.size() > limit ? new ArrayList<>(hits.subList(0, limit)) : hits;
+    }
+
+    private static void collectPlacementHits(DatapackWorldgen worldgen, Structure structure, Identifier id,
+                                             StructurePlacement placement, int centerChunkX, int centerChunkZ,
+                                             BlockPos origin, List<StructureHit> hits) {
+        if (placement instanceof ConcentricRingsStructurePlacement concentric) {
+            List<ChunkPos> positions = worldgen.structureState.getRingPositionsFor(concentric);
+            if (positions == null) return;
+            for (ChunkPos chunkPos : positions) {
+                BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos, null);
+                if (pos != null) {
+                    hits.add(new StructureHit(id, pos, horizontalDistance(pos, origin)));
+                }
+            }
+        } else if (placement instanceof RandomSpreadStructurePlacement spread) {
+            int spacing = spread.spacing();
+            for (int k = 0; k <= LOCATE_STRUCTURE_RADIUS; k++) {
+                for (int dx = -k; dx <= k; dx++) {
+                    for (int dz = -k; dz <= k; dz++) {
+                        if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
+                        ChunkPos start = spread.getPotentialStructureChunk(worldgen.seed,
+                            centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
+                        BlockPos pos = checkStructureAt(worldgen, structure, placement, start, null);
+                        if (pos != null) {
+                            hits.add(new StructureHit(id, pos, horizontalDistance(pos, origin)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static int horizontalDistance(BlockPos a, BlockPos b) {
+        int dx = a.getX() - b.getX();
+        int dz = a.getZ() - b.getZ();
+        return (int) Math.sqrt((double) dx * dx + (double) dz * dz);
+    }
+
+    /** 就近群系命中：群系 id + 位置 + 切比雪夫距离 */
+    public record BiomeHit(Identifier id, BlockPos pos, int distance) {}
+
+    /**
+     * 以 origin 为中心螺旋扫描（32 格步长，6400 半径，同 /locate biome），
+     * 返回最近的 limit 种不同群系及首次出现位置（按切比雪夫距离排序）。
+     */
+    public static List<BiomeHit> findNearestBiomes(DatapackWorldgen worldgen, BlockPos origin, int limit) {
+        Registry<Biome> biomeRegistry = worldgen.registryManager.lookupOrThrow(Registries.BIOME);
+        List<BiomeHit> hits = new ArrayList<>();
+        int sampleY = Math.max(worldgen.heightView.getMinY(), Math.min(64, worldgen.heightView.getMaxY() - 1));
+        var sampler = worldgen.randomState.sampler();
+
+        for (int r = 0; r <= 6400 && hits.size() < limit; r += 32) {
+            // 切比雪夫距离环：|dx|==r 或 |dz|==r；同环内所有首次出现的群系距离相同
+            for (int dx = -r; dx <= r; dx += 32) {
+                for (int dz = -r; dz <= r; dz += 32) {
+                    if (r != 0 && Math.abs(dx) != r && Math.abs(dz) != r) continue;
+                    int x = origin.getX() + dx;
+                    int z = origin.getZ() + dz;
+                    Holder<Biome> biome = worldgen.biomeSource.getNoiseBiome(
+                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(x),
+                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(sampleY),
+                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(z),
+                        sampler);
+                    Identifier id = biomeRegistry.getKey(biome.value());
+                    if (id == null) continue;
+                    boolean seen = false;
+                    for (BiomeHit hit : hits) {
+                        if (hit.id().equals(id)) { seen = true; break; }
+                    }
+                    if (!seen) {
+                        hits.add(new BiomeHit(id, new BlockPos(x, sampleY, z), r));
+                    }
+                }
+            }
+        }
+        return hits;
     }
 }
