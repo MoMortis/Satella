@@ -60,7 +60,10 @@ public final class StCommands {
                 .then(literal("rules")
                     .executes(ctx -> {
                         StLocator.LOGGER.info("打开多环定位规则编辑器");
-                        MinecraftClient.getInstance().setScreen(new StRulesEditorScreen(null));
+                        // 从聊天栏执行时聊天框会在指令返回后 setScreen(null) 关闭自己，
+                        // 直接开界面会被顶掉，延迟到下一拍再打开
+                        MinecraftClient.getInstance().execute(() ->
+                            MinecraftClient.getInstance().setScreen(new StRulesEditorScreen(null)));
                         return 1;
                     }))
                 .then(literal("reload")
