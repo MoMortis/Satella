@@ -86,6 +86,24 @@ public final class StLocator {
         }
     }
 
+    private static LevelStorage levelStorage;
+    private static LevelStorage.Session templateSession;
+
+    /**
+     * 模板管理器所需会话，进程内只创建一次并持久持有：
+     * session.lock 一旦释放就无法再次获取，重建会话必然撞锁。
+     */
+    private static synchronized LevelStorage.Session session(DataFixer dataFixer) throws Exception {
+        if (templateSession == null) {
+            Path sessionRoot = configDir.resolve("st-session");
+            levelStorage = new LevelStorage(
+                sessionRoot.resolve("saves"), sessionRoot.resolve("backups"),
+                LevelStorage.createSymlinkFinder(sessionRoot.resolve("allowed_symlinks.txt")), dataFixer);
+            templateSession = levelStorage.createSessionWithoutSymlinkCheck("satella-st");
+        }
+        return templateSession;
+    }
+
     /** 获取（必要时构建）世界生成栈；数据包 zip 变化时自动重建。 */
     public static DatapackWorldgen worldgen() throws Exception {
         DatapackWorldgen current = worldgen;
@@ -97,7 +115,9 @@ public final class StLocator {
             MinecraftClient client = MinecraftClient.getInstance();
             DatapackWorldgen built = DatapackWorldgen.load(
                 packsDir,
-                configDir.resolve("st-session"),
+                levelStorage != null ? levelStorage.getSymlinkFinder()
+                    : LevelStorage.createSymlinkFinder(configDir.resolve("st-session/allowed_symlinks.txt")),
+                session(client.getDataFixer()),
                 client.getResourceManager(),
                 client.getDataFixer(),
                 seed);

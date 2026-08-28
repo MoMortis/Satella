@@ -1,15 +1,15 @@
 package greenebolt.autotrade.stlocator;
 
 import com.mojang.datafixers.DataFixer;
-import net.minecraft.util.Util;
-import net.minecraft.commands.Commands;
-import net.minecraft.core.Holder;
+import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.RegistryDataLoader;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.RegistryLayer;
 import net.minecraft.server.WorldLoader;
-import net.minecraft.server.permissions.PermissionSet;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.server.packs.repository.ServerPacksSource;
 import net.minecraft.server.packs.resources.CloseableResourceManager;
@@ -28,13 +28,15 @@ import net.minecraft.world.level.validation.DirectoryValidator;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * 纯客户端世界生成栈：通过 {@link WorldLoader} 加载原版数据包与
- * config/satella/datapacks 下的数据包 zip，解析全部动态注册表，并实例化
- * overworld 噪声生成器，使任意种子下的群系/结构查询可以完全离线执行。
- * 会话目录位于 config/satella 内，EMT 之外不留文件。
+ * 纯客户端世界生成栈：加载原版数据包与 config/satella/datapacks 下的数据包 zip，
+ * 解析全部动态注册表，并实例化 overworld 噪声生成器，使任意种子下的群系/结构查询
+ * 可以完全离线执行。会话目录位于 config/satella 内，EMT 之外不留文件。
  */
 public final class DatapackWorldgen implements AutoCloseable {
     public final RegistryAccess.Frozen registryManager;
@@ -45,8 +47,9 @@ public final class DatapackWorldgen implements AutoCloseable {
     public final ChunkGeneratorStructureState structureState;
     public final StructureTemplateManager templateManager;
     public final List<String> loadedPacks;
+    /** 容错加载时被跳过的元素（第三方数据包引用模组自定义注册表等） */
+    public final Map<ResourceKey<?>, Exception> registryErrors;
     private final CloseableResourceManager resources;
-    private final LevelStorageSource.LevelStorageAccess session;
 
     private DatapackWorldgen(
         RegistryAccess.Frozen registryManager,
@@ -57,8 +60,8 @@ public final class DatapackWorldgen implements AutoCloseable {
         ChunkGeneratorStructureState structureState,
         StructureTemplateManager templateManager,
         CloseableResourceManager resources,
-        LevelStorageSource.LevelStorageAccess session,
-        List<String> loadedPacks
+        List<String> loadedPacks,
+        Map<ResourceKey<?>, Exception> registryErrors
     ) {
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
@@ -68,76 +71,122 @@ public final class DatapackWorldgen implements AutoCloseable {
         this.structureState = structureState;
         this.templateManager = templateManager;
         this.resources = resources;
-        this.session = session;
         this.loadedPacks = loadedPacks;
+        this.registryErrors = registryErrors;
     }
 
-    private record Loaded(
-        HolderLookup.Provider worldgen,
-        RegistryAccess.Frozen dims,
-        CloseableResourceManager resources,
-        LevelStorageSource.LevelStorageAccess session,
-        List<String> loadedPacks
-    ) {}
-
-    public static DatapackWorldgen load(Path configDir, Path packsDir, Path sessionRoot,
+    @SuppressWarnings("unchecked")
+    public static DatapackWorldgen load(Path packsDir, DirectoryValidator validator,
+                                        LevelStorageSource.LevelStorageAccess session,
                                         ResourceManager clientResources, DataFixer dataFixer, long seed) throws Exception {
-        DirectoryValidator validator = LevelStorageSource.parseValidator(sessionRoot.resolve("allowed_symlinks.txt"));
-        LevelStorageSource storage = new LevelStorageSource(
-            sessionRoot.resolve("saves"), sessionRoot.resolve("backups"), validator, dataFixer);
-        LevelStorageSource.LevelStorageAccess session = storage.createAccess("satella-st");
+        CloseableResourceManager resources = null;
+        try {
+            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包
+            PackRepository repo = ServerPacksSource.createPackRepository(packsDir, validator);
+            WorldLoader.PackConfig packConfig = new WorldLoader.PackConfig(repo, WorldDataConfiguration.DEFAULT, false, false);
+            Pair<WorldDataConfiguration, CloseableResourceManager> pair = packConfig.createResourceManager();
+            resources = pair.getSecond();
 
-        PackRepository repo = ServerPacksSource.createPackRepository(packsDir, validator);
-        WorldLoader.PackConfig packConfig = new WorldLoader.PackConfig(repo, WorldDataConfiguration.DEFAULT, false, false);
-        WorldLoader.InitConfig init = new WorldLoader.InitConfig(packConfig, Commands.CommandSelection.INTEGRATED, PermissionSet.NO_PERMISSIONS);
+            // STATIC 层作为基础查找（方块等原版内置注册表）
+            List<HolderLookup.RegistryLookup<?>> base = new ArrayList<>();
+            RegistryLayer.createRegistryAccess().getLayer(RegistryLayer.STATIC)
+                .registries().forEach(entry -> base.add(entry.value()));
 
-        Loaded loaded = WorldLoader.load(
-            init,
-            ctx -> new WorldLoader.DataLoadOutput<>(
-                new Loaded(ctx.datapackWorldgen(), ctx.datapackDimensions(), null, session, List.of()), ctx.datapackDimensions()),
-            (rm, serverResources, registryAccess, result) ->
-                new Loaded(result.worldgen(), result.dims(), rm, result.session(), result.loadedPacks()),
-            Util.backgroundExecutor(), Util.backgroundExecutor()
-        ).get();
+            // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
+            // 只跳过对应元素，不让整个注册表加载失败
+            Map<ResourceKey<?>, Exception> registryErrors = new HashMap<>();
+            List<Registry<?>> worldgen = TolerantRegistryLoader.load(
+                base, RegistryDataLoader.WORLDGEN_REGISTRIES, resources, registryErrors);
+            for (Map.Entry<ResourceKey<?>, Exception> err : registryErrors.entrySet()) {
+                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().identifier(), err.getValue().toString());
+            }
+            List<HolderLookup.RegistryLookup<?>> all = new ArrayList<>(base);
+            for (Registry<?> registry : worldgen) {
+                all.add((HolderLookup.RegistryLookup<?>) registry);
+            }
+            List<Registry<?>> dimensionList = TolerantRegistryLoader.load(
+                all, RegistryDataLoader.DIMENSION_REGISTRIES, resources, registryErrors);
 
-        LevelStem stem = loaded.dims().lookupOrThrow(Registries.LEVEL_STEM)
-            .get(LevelStem.OVERWORLD).map(Holder::value).orElse(null);
-        NoiseBasedChunkGenerator generator = null;
-        if (stem != null && stem.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
-            generator = noiseGen;
-        } else {
-            for (LevelStem entry : loaded.dims().lookupOrThrow(Registries.LEVEL_STEM)) {
-                if (entry.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
+            // 合并为一个 Frozen RegistryAccess 供查询与模板管理器使用
+            List<Registry<?>> combined = new ArrayList<>(worldgen);
+            combined.addAll(dimensionList);
+            RegistryAccess.Frozen dimsAccess = frozenAccess(combined);
+
+            LevelStem stem = null;
+            NoiseBasedChunkGenerator generator = null;
+            Registry<LevelStem> stems = dimsAccess.lookupOrThrow(Registries.LEVEL_STEM);
+            for (LevelStem candidate : stems) {
+                boolean overworld = LevelStem.OVERWORLD.equals(stems.getResourceKey(candidate).orElse(null));
+                if ((overworld || generator == null) && candidate.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
+                    stem = candidate;
                     generator = noiseGen;
+                }
+                if (overworld) {
                     break;
                 }
             }
+            if (generator == null) {
+                throw new IllegalStateException("数据包中没有基于噪声的维度");
+            }
+
+            NoiseGeneratorSettings settings = generator.generatorSettings().value();
+            RandomState randomState = RandomState.create(settings, dimsAccess.lookupOrThrow(Registries.NOISE), seed);
+            LevelHeightAccessor heightView = LevelHeightAccessor.create(settings.noiseSettings().minY(), settings.noiseSettings().height());
+            ChunkGeneratorStructureState structureState = ChunkGeneratorStructureState.createForNormal(
+                randomState, seed, generator.getBiomeSource(), dimsAccess.lookupOrThrow(Registries.STRUCTURE_SET));
+            StructureTemplateManager templateManager = new StructureTemplateManager(
+                clientResources, session, dataFixer, dimsAccess.lookupOrThrow(Registries.BLOCK));
+
+            // createResourceManager 内部已完成 scanPacks 并自动启用数据包目录中的 zip
+            List<String> loadedPacks = new ArrayList<>(repo.getSelectedIds());
+
+            return new DatapackWorldgen(dimsAccess, generator, randomState, generator.getBiomeSource(),
+                heightView, structureState, templateManager, resources, loadedPacks, registryErrors);
+        } catch (Exception e) {
+            // 失败时释放已打开的资源包（zip 句柄）；模板会话由外部持久持有，不受影响
+            if (resources != null) {
+                resources.close();
+            }
+            throw e;
         }
-        if (generator == null) {
-            throw new IllegalStateException("数据包中没有基于噪声的维度");
+    }
+
+    /** 用加载完成的注册表构造一个 Frozen RegistryAccess。 */
+    @SuppressWarnings("unchecked")
+    private static RegistryAccess.Frozen frozenAccess(List<Registry<?>> registries) {
+        Map<ResourceKey<? extends Registry<?>>, Registry<?>> byKey = new HashMap<>();
+        for (Registry<?> registry : registries) {
+            byKey.put(registry.key(), registry);
         }
+        return new RegistryAccess.Frozen() {
+            @Override
+            public <E> Optional<Registry<E>> lookup(ResourceKey<? extends Registry<? extends E>> registryRef) {
+                return Optional.ofNullable((Registry<E>) byKey.get(registryRef));
+            }
 
-        NoiseGeneratorSettings settings = generator.generatorSettings().value();
-        RandomState randomState = RandomState.create(settings, loaded.worldgen().lookupOrThrow(Registries.NOISE), seed);
-        LevelHeightAccessor heightView = LevelHeightAccessor.create(settings.noiseSettings().minY(), settings.noiseSettings().height());
-        ChunkGeneratorStructureState structureState = ChunkGeneratorStructureState.createForNormal(
-            randomState, seed, generator.getBiomeSource(), loaded.dims().lookupOrThrow(Registries.STRUCTURE_SET));
-        StructureTemplateManager templateManager = new StructureTemplateManager(
-            clientResources, session, dataFixer, loaded.dims().lookupOrThrow(Registries.BLOCK));
+            @Override
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            public java.util.stream.Stream<RegistryEntry<?>> registries() {
+                return byKey.entrySet().stream()
+                    .map(e -> new RegistryAccess.RegistryEntry(e.getKey(), e.getValue()));
+            }
 
-        // createResourceManager 内部已完成 scanPacks 并自动启用数据包目录中的 zip
-        List<String> loadedPacks = new ArrayList<>(repo.getSelectedIds());
+            @Override
+            public java.util.stream.Stream<ResourceKey<? extends Registry<?>>> listRegistryKeys() {
+                return byKey.keySet().stream();
+            }
 
-        return new DatapackWorldgen(loaded.dims(), generator, randomState, generator.getBiomeSource(),
-            heightView, structureState, templateManager, loaded.resources(), session, loadedPacks);
+            @Override
+            public RegistryAccess.Frozen freeze() {
+                return this;
+            }
+        };
     }
 
     @Override
     public void close() {
-        if (resources != null) resources.close();
-        try {
-            session.close();
-        } catch (Exception ignored) {
+        if (resources != null) {
+            resources.close();
         }
     }
 }

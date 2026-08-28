@@ -1,6 +1,7 @@
 package greenebolt.autotrade.stlocator;
 
 import com.mojang.datafixers.util.Pair;
+import com.mojang.datafixers.DataFixer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -15,6 +16,8 @@ import net.minecraft.world.level.LevelHeightAccessor;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeSource;
 import net.minecraft.world.level.levelgen.RandomState;
+import net.minecraft.world.level.storage.LevelStorageSource;
+import net.minecraft.world.level.validation.DirectoryValidator;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.placement.ConcentricRingsStructurePlacement;
 import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
@@ -84,7 +87,25 @@ public final class StLocator {
         }
     }
 
-    /** 获取（必要时构建）世界生成栈。 */
+    private static LevelStorageSource storage;
+    private static LevelStorageSource.LevelStorageAccess templateSession;
+
+    /**
+     * 模板管理器所需会话，进程内只创建一次并持久持有：
+     * session.lock 一旦释放就无法再次获取，重建会话必然撞锁。
+     */
+    private static synchronized LevelStorageSource.LevelStorageAccess session(DataFixer dataFixer) throws Exception {
+        if (templateSession == null) {
+            Path sessionRoot = configDir.resolve("st-session");
+            DirectoryValidator validator = LevelStorageSource.parseValidator(sessionRoot.resolve("allowed_symlinks.txt"));
+            storage = new LevelStorageSource(
+                sessionRoot.resolve("saves"), sessionRoot.resolve("backups"), validator, dataFixer);
+            templateSession = storage.createAccess("satella-st");
+        }
+        return templateSession;
+    }
+
+    /** 获取（必要时构建）世界生成栈；数据包 zip 变化时自动重建。 */
     public static DatapackWorldgen worldgen() throws Exception {
         DatapackWorldgen current = worldgen;
         if (current != null) return current;
@@ -93,10 +114,12 @@ public final class StLocator {
             Path packsDir = configDir.resolve("datapacks");
             Files.createDirectories(packsDir);
             Minecraft client = Minecraft.getInstance();
+            Path sessionRoot = configDir.resolve("st-session");
+            DirectoryValidator validator = LevelStorageSource.parseValidator(sessionRoot.resolve("allowed_symlinks.txt"));
             DatapackWorldgen built = DatapackWorldgen.load(
-                configDir,
                 packsDir,
-                configDir.resolve("st-session"),
+                validator,
+                session(client.getFixerUpper()),
                 client.getResourceManager(),
                 client.getFixerUpper(),
                 seed);

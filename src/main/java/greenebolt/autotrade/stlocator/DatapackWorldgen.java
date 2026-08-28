@@ -36,8 +36,9 @@ import net.minecraft.world.level.storage.LevelStorage;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.stream.Stream;
+import java.util.Map;
 
 /**
  * 纯客户端世界生成栈：复刻 {@link SaveLoading} 的注册表加载流程，但不打开任何存档。
@@ -53,6 +54,8 @@ public final class DatapackWorldgen implements AutoCloseable {
     public final StructurePlacementCalculator placementCalculator;
     public final StructureTemplateManager templateManager;
     public final List<String> loadedPacks;
+    /** 容错加载时被跳过的元素（第三方数据包引用模组自定义注册表等） */
+    public final Map<RegistryKey<?>, Exception> registryErrors;
     private final LifecycledResourceManager resourceManager;
 
     private DatapackWorldgen(
@@ -64,7 +67,8 @@ public final class DatapackWorldgen implements AutoCloseable {
         StructurePlacementCalculator placementCalculator,
         StructureTemplateManager templateManager,
         LifecycledResourceManager resourceManager,
-        List<String> loadedPacks
+        List<String> loadedPacks,
+        Map<RegistryKey<?>, Exception> registryErrors
     ) {
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
@@ -75,54 +79,69 @@ public final class DatapackWorldgen implements AutoCloseable {
         this.templateManager = templateManager;
         this.resourceManager = resourceManager;
         this.loadedPacks = loadedPacks;
+        this.registryErrors = registryErrors;
     }
 
-    public static DatapackWorldgen load(Path packsDir, Path sessionDir, ResourceManager clientResources,
-                                        DataFixer dataFixer, long seed) throws Exception {
-        // 模板管理器需要一个 "generated" 目录；会话根目录放在 config/satella 内，EMT 之外不留文件。
-        LevelStorage levelStorage = new LevelStorage(
-            sessionDir.resolve("saves"), sessionDir.resolve("backups"),
-            LevelStorage.createSymlinkFinder(sessionDir.resolve("allowed_symlinks.txt")), dataFixer);
-        LevelStorage.Session templateSession = levelStorage.createSessionWithoutSymlinkCheck("satella-st");
+    public static DatapackWorldgen load(Path packsDir, SymlinkFinder symlinkFinder, LevelStorage.Session templateSession,
+                                        ResourceManager clientResources, DataFixer dataFixer, long seed) throws Exception {
+        LifecycledResourceManager resourceManager = null;
+        try {
+            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包
+            ResourcePackManager packManager = new ResourcePackManager(
+                new VanillaDataPackProvider(symlinkFinder),
+                new FileResourcePackProvider(packsDir, ResourceType.SERVER_DATA, ResourcePackSource.WORLD, symlinkFinder));
+            Pair<DataConfiguration, LifecycledResourceManager> loaded =
+                new SaveLoading.DataPacks(packManager, DataConfiguration.SAFE_MODE, false, false).load();
+            resourceManager = loaded.getSecond();
 
-        ResourcePackManager packManager = new ResourcePackManager(
-            new VanillaDataPackProvider(levelStorage.getSymlinkFinder()),
-            new FileResourcePackProvider(packsDir, ResourceType.SERVER_DATA, ResourcePackSource.WORLD, levelStorage.getSymlinkFinder()));
-        Pair<DataConfiguration, LifecycledResourceManager> loaded =
-            new SaveLoading.DataPacks(packManager, DataConfiguration.SAFE_MODE, false, false).load();
-        LifecycledResourceManager resourceManager = loaded.getSecond();
+            CombinedDynamicRegistries<ServerDynamicRegistryType> combined = ServerDynamicRegistryType.createCombinedDynamicRegistries();
+            List<Registry.PendingTagLoad<?>> pendingTags = TagGroupLoader.startReload(
+                resourceManager, combined.get(ServerDynamicRegistryType.STATIC));
+            DynamicRegistryManager.Immutable preceding = combined.getPrecedingRegistryManagers(ServerDynamicRegistryType.WORLDGEN);
+            List<RegistryWrapper.Impl<?>> wrappers = TagGroupLoader.collectRegistries(preceding, pendingTags);
 
-        CombinedDynamicRegistries<ServerDynamicRegistryType> combined = ServerDynamicRegistryType.createCombinedDynamicRegistries();
-        List<Registry.PendingTagLoad<?>> pendingTags = TagGroupLoader.startReload(
-            resourceManager, combined.get(ServerDynamicRegistryType.STATIC));
-        DynamicRegistryManager.Immutable preceding = combined.getPrecedingRegistryManagers(ServerDynamicRegistryType.WORLDGEN);
-        List<RegistryWrapper.Impl<?>> wrappers = TagGroupLoader.collectRegistries(preceding, pendingTags);
-        DynamicRegistryManager.Immutable dynamic = RegistryLoader.loadFromResource(resourceManager, wrappers, RegistryLoader.DYNAMIC_REGISTRIES);
-        List<RegistryWrapper.Impl<?>> allWrappers = Stream.concat(wrappers.stream(), dynamic.stream()).toList();
-        DynamicRegistryManager.Immutable dimensions = RegistryLoader.loadFromResource(resourceManager, allWrappers, RegistryLoader.DIMENSION_REGISTRIES);
+            // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
+            // 只跳过对应元素，不让整个注册表加载失败
+            Map<RegistryKey<?>, Exception> registryErrors = new HashMap<>();
+            DynamicRegistryManager.Immutable dynamic = TolerantRegistryLoader.load(
+                resourceManager, wrappers, RegistryLoader.DYNAMIC_REGISTRIES, registryErrors);
+            for (Map.Entry<RegistryKey<?>, Exception> err : registryErrors.entrySet()) {
+                StLocator.LOGGER.warn("跳过注册表元素 {}: {}", err.getKey().getValue(), err.getValue().toString());
+            }
+            List<RegistryWrapper.Impl<?>> allWrappers = new ArrayList<>(wrappers);
+            dynamic.stream().forEach(allWrappers::add);
+            DynamicRegistryManager.Immutable dimensions = TolerantRegistryLoader.load(
+                resourceManager, allWrappers, RegistryLoader.DIMENSION_REGISTRIES, registryErrors);
 
-        DimensionOptions dimension = pickNoiseDimension(dimensions);
-        ChunkGenerator generator = dimension.chunkGenerator();
-        if (!(generator instanceof NoiseChunkGenerator noiseGenerator)) {
-            throw new IllegalStateException("数据包中没有基于噪声的维度");
+            DimensionOptions dimension = pickNoiseDimension(dimensions);
+            ChunkGenerator generator = dimension.chunkGenerator();
+            if (!(generator instanceof NoiseChunkGenerator noiseGenerator)) {
+                throw new IllegalStateException("数据包中没有基于噪声的维度");
+            }
+
+            ChunkGeneratorSettings settings = noiseGenerator.getSettings().value();
+            NoiseConfig noiseConfig = NoiseConfig.create(settings, dimensions.getOrThrow(RegistryKeys.NOISE_PARAMETERS), seed);
+            HeightLimitView heightView = HeightLimitView.create(
+                settings.generationShapeConfig().minimumY(), settings.generationShapeConfig().height());
+            StructurePlacementCalculator placementCalculator = StructurePlacementCalculator.create(
+                noiseConfig, seed, noiseGenerator.getBiomeSource(), dimensions.getOrThrow(RegistryKeys.STRUCTURE_SET));
+            StructureTemplateManager templateManager = new StructureTemplateManager(
+                clientResources, templateSession, dataFixer, dimensions.getOrThrow(RegistryKeys.BLOCK));
+
+            List<String> loadedPacks = new ArrayList<>();
+            for (var profile : packManager.getEnabledProfiles()) {
+                loadedPacks.add(profile.getId());
+            }
+
+            return new DatapackWorldgen(dimensions, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
+                heightView, placementCalculator, templateManager, resourceManager, loadedPacks, registryErrors);
+        } catch (Exception e) {
+            // 失败时释放已打开的资源包（zip 句柄）；模板会话由外部持久持有，不受影响
+            if (resourceManager != null) {
+                resourceManager.close();
+            }
+            throw e;
         }
-
-        ChunkGeneratorSettings settings = noiseGenerator.getSettings().value();
-        NoiseConfig noiseConfig = NoiseConfig.create(settings, dimensions.getOrThrow(RegistryKeys.NOISE_PARAMETERS), seed);
-        HeightLimitView heightView = HeightLimitView.create(
-            settings.generationShapeConfig().minimumY(), settings.generationShapeConfig().height());
-        StructurePlacementCalculator placementCalculator = StructurePlacementCalculator.create(
-            noiseConfig, seed, noiseGenerator.getBiomeSource(), dimensions.getOrThrow(RegistryKeys.STRUCTURE_SET));
-        StructureTemplateManager templateManager = new StructureTemplateManager(
-            clientResources, templateSession, dataFixer, dimensions.getOrThrow(RegistryKeys.BLOCK));
-
-        List<String> loadedPacks = new ArrayList<>();
-        for (var profile : packManager.getEnabledProfiles()) {
-            loadedPacks.add(profile.getId());
-        }
-
-        return new DatapackWorldgen(dimensions, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
-            heightView, placementCalculator, templateManager, resourceManager, loadedPacks);
     }
 
     private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dimensions) {
