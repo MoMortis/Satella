@@ -35,6 +35,7 @@ import net.minecraft.world.gen.noise.NoiseConfig;
 import net.minecraft.world.level.storage.LevelStorage;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -51,6 +52,7 @@ public final class DatapackWorldgen implements AutoCloseable {
     public final HeightLimitView heightView;
     public final StructurePlacementCalculator placementCalculator;
     public final StructureTemplateManager templateManager;
+    public final List<String> loadedPacks;
     private final LifecycledResourceManager resourceManager;
 
     private DatapackWorldgen(
@@ -61,7 +63,8 @@ public final class DatapackWorldgen implements AutoCloseable {
         HeightLimitView heightView,
         StructurePlacementCalculator placementCalculator,
         StructureTemplateManager templateManager,
-        LifecycledResourceManager resourceManager
+        LifecycledResourceManager resourceManager,
+        List<String> loadedPacks
     ) {
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
@@ -71,6 +74,7 @@ public final class DatapackWorldgen implements AutoCloseable {
         this.placementCalculator = placementCalculator;
         this.templateManager = templateManager;
         this.resourceManager = resourceManager;
+        this.loadedPacks = loadedPacks;
     }
 
     public static DatapackWorldgen load(Path packsDir, Path sessionDir, ResourceManager clientResources,
@@ -112,8 +116,13 @@ public final class DatapackWorldgen implements AutoCloseable {
         StructureTemplateManager templateManager = new StructureTemplateManager(
             clientResources, templateSession, dataFixer, dimensions.getOrThrow(RegistryKeys.BLOCK));
 
+        List<String> loadedPacks = new ArrayList<>();
+        for (var profile : packManager.getEnabledProfiles()) {
+            loadedPacks.add(profile.getId());
+        }
+
         return new DatapackWorldgen(dimensions, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
-            heightView, placementCalculator, templateManager, resourceManager);
+            heightView, placementCalculator, templateManager, resourceManager, loadedPacks);
     }
 
     private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dimensions) {

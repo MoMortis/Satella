@@ -60,7 +60,15 @@ public final class StCommands {
                 .then(literal("reload")
                     .executes(ctx -> {
                         StLocator.reload();
-                        ctx.getSource().sendFeedback(Text.literal("已重新加载数据包"));
+                        ctx.getSource().sendFeedback(Text.literal("§7正在重新加载数据包 …"));
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                send(source(ctx), packSummary(StLocator.worldgen()));
+                            } catch (Exception e) {
+                                StLocator.LOGGER.error("加载数据包失败", e);
+                                send(source(ctx), StLocator.error("加载失败: " + e.getMessage()));
+                            }
+                        });
                         return 1;
                     }))
         ));
@@ -134,6 +142,21 @@ public final class StCommands {
         MinecraftClient.getInstance().execute(() -> source.sendFeedback(message));
     }
 
+    /** 汇报本次加载启用的数据包与可查询的群系/结构数量 */
+    private static Text packSummary(DatapackWorldgen wg) {
+        int biomes = wg.registryManager.getOrThrow(RegistryKeys.BIOME).getIds().size();
+        int structures = wg.registryManager.getOrThrow(RegistryKeys.STRUCTURE).getIds().size();
+        StringBuilder sb = new StringBuilder("§a已启用 " + wg.loadedPacks.size() + " 个数据包，可查询 " + biomes + " 个群系 / " + structures + " 个结构：");
+        for (String pack : wg.loadedPacks) {
+            sb.append("\n§7- §f").append(pack);
+        }
+        return Text.literal(sb.toString());
+    }
+
+    private static FabricClientCommandSource source(CommandContext<FabricClientCommandSource> ctx) {
+        return ctx.getSource();
+    }
+
     private static CompletableFuture<Suggestions> suggestBiomes(CommandContext<FabricClientCommandSource> context, SuggestionsBuilder builder) {
         return suggestIds(context, builder, RegistryKeys.BIOME);
     }
@@ -145,12 +168,25 @@ public final class StCommands {
     private static CompletableFuture<Suggestions> suggestIds(
         CommandContext<FabricClientCommandSource> context, SuggestionsBuilder builder, RegistryKey<? extends Registry<?>> key
     ) {
-        DatapackWorldgen wg = StLocator.peekWorldgen();
-        if (wg == null) return builder.buildFuture();
-        Registry<?> registry = wg.registryManager.getOrThrow((RegistryKey) key);
         String remaining = builder.getRemaining().toLowerCase();
-        for (Identifier id : registry.getIds()) {
-            if (id.toString().startsWith(remaining)) {
+        // 已加载离线世界生成栈（含 config/satella/datapacks 的数据包）时用它的注册表，
+        // 否则回退到当前世界已同步的注册表，保证未加载时也能自动补全
+        Iterable<Identifier> ids;
+        if (StLocator.peekWorldgen() != null) {
+            ids = StLocator.peekWorldgen().registryManager.getOrThrow((RegistryKey) key).getIds();
+        } else {
+            var client = MinecraftClient.getInstance();
+            var registryManager = client.world != null ? client.world.getRegistryManager() : null;
+            if (registryManager == null) return builder.buildFuture();
+            Registry<?> registry = registryManager.getOrThrow((RegistryKey) key);
+            ids = registry.getIds();
+        }
+        for (Identifier id : ids) {
+            // 输入含命名空间时匹配完整 id，否则只按路径前缀匹配（"village" 能补出 "minecraft:village"）
+            boolean match = remaining.indexOf(':') >= 0
+                ? id.toString().startsWith(remaining)
+                : id.getPath().startsWith(remaining);
+            if (match) {
                 builder.suggest(id.toString());
             }
         }

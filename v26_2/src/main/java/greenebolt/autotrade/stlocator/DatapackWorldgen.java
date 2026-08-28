@@ -27,6 +27,8 @@ import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.validation.DirectoryValidator;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 纯客户端世界生成栈：通过 {@link WorldLoader} 加载原版数据包与
@@ -42,6 +44,7 @@ public final class DatapackWorldgen implements AutoCloseable {
     public final LevelHeightAccessor heightView;
     public final ChunkGeneratorStructureState structureState;
     public final StructureTemplateManager templateManager;
+    public final List<String> loadedPacks;
     private final CloseableResourceManager resources;
     private final LevelStorageSource.LevelStorageAccess session;
 
@@ -54,7 +57,8 @@ public final class DatapackWorldgen implements AutoCloseable {
         ChunkGeneratorStructureState structureState,
         StructureTemplateManager templateManager,
         CloseableResourceManager resources,
-        LevelStorageSource.LevelStorageAccess session
+        LevelStorageSource.LevelStorageAccess session,
+        List<String> loadedPacks
     ) {
         this.registryManager = registryManager;
         this.noiseGenerator = noiseGenerator;
@@ -65,13 +69,15 @@ public final class DatapackWorldgen implements AutoCloseable {
         this.templateManager = templateManager;
         this.resources = resources;
         this.session = session;
+        this.loadedPacks = loadedPacks;
     }
 
     private record Loaded(
         HolderLookup.Provider worldgen,
         RegistryAccess.Frozen dims,
         CloseableResourceManager resources,
-        LevelStorageSource.LevelStorageAccess session
+        LevelStorageSource.LevelStorageAccess session,
+        List<String> loadedPacks
     ) {}
 
     public static DatapackWorldgen load(Path configDir, Path packsDir, Path sessionRoot,
@@ -88,9 +94,9 @@ public final class DatapackWorldgen implements AutoCloseable {
         Loaded loaded = WorldLoader.load(
             init,
             ctx -> new WorldLoader.DataLoadOutput<>(
-                new Loaded(ctx.datapackWorldgen(), ctx.datapackDimensions(), null, session), ctx.datapackDimensions()),
+                new Loaded(ctx.datapackWorldgen(), ctx.datapackDimensions(), null, session, List.of()), ctx.datapackDimensions()),
             (rm, serverResources, registryAccess, result) ->
-                new Loaded(result.worldgen(), result.dims(), rm, result.session()),
+                new Loaded(result.worldgen(), result.dims(), rm, result.session(), result.loadedPacks()),
             Util.backgroundExecutor(), Util.backgroundExecutor()
         ).get();
 
@@ -119,8 +125,11 @@ public final class DatapackWorldgen implements AutoCloseable {
         StructureTemplateManager templateManager = new StructureTemplateManager(
             clientResources, session, dataFixer, loaded.dims().lookupOrThrow(Registries.BLOCK));
 
+        // createResourceManager 内部已完成 scanPacks 并自动启用数据包目录中的 zip
+        List<String> loadedPacks = new ArrayList<>(repo.getSelectedIds());
+
         return new DatapackWorldgen(loaded.dims(), generator, randomState, generator.getBiomeSource(),
-            heightView, structureState, templateManager, loaded.resources(), session);
+            heightView, structureState, templateManager, loaded.resources(), session, loadedPacks);
     }
 
     @Override
