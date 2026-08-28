@@ -29,6 +29,9 @@ import net.minecraft.util.path.SymlinkFinder;
 import net.minecraft.world.HeightLimitView;
 import net.minecraft.world.biome.source.BiomeSource;
 import net.minecraft.world.dimension.DimensionOptions;
+import net.minecraft.registry.entry.RegistryEntryList;
+import net.minecraft.registry.tag.WorldPresetTags;
+import net.minecraft.world.gen.WorldPreset;
 import net.minecraft.world.gen.chunk.ChunkGenerator;
 import net.minecraft.world.gen.chunk.ChunkGeneratorSettings;
 import net.minecraft.world.gen.chunk.NoiseChunkGenerator;
@@ -124,7 +127,7 @@ public final class DatapackWorldgen implements AutoCloseable {
             DynamicRegistryManager.Immutable dimensions = TolerantRegistryLoader.load(
                 resourceManager, allWrappers, RegistryLoader.DIMENSION_REGISTRIES, registryErrors);
 
-            DimensionOptions dimension = pickNoiseDimension(dimensions);
+            DimensionOptions dimension = pickNoiseDimension(dynamic, dimensions);
             ChunkGenerator generator = dimension.chunkGenerator();
             if (!(generator instanceof NoiseChunkGenerator noiseGenerator)) {
                 throw new IllegalStateException("数据包中没有基于噪声的维度");
@@ -169,11 +172,35 @@ public final class DatapackWorldgen implements AutoCloseable {
         throw new IllegalStateException("Missing static registry: " + key.getValue());
     }
 
-    private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dimensions) {
-        Registry<DimensionOptions> registry = dimensions.getOrThrow(RegistryKeys.DIMENSION);
-        DimensionOptions overworld = registry.get(RegistryKey.of(RegistryKeys.DIMENSION, Identifier.ofVanilla("overworld")));
+    private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dynamic, DynamicRegistryManager.Immutable dimensions) {
+        // 原版维度不在 dimension 数据目录中，而是定义在 world preset（#minecraft:normal）里；
+        // dimension 注册表通常只有第三方数据包自带的维度（如 nullscape 的 end），不能直接选
+        RegistryWrapper.Impl<WorldPreset> presets = dynamic.getOrThrow(RegistryKeys.WORLD_PRESET);
+
+        // 1) minecraft:normal 预设
+        WorldPreset normal = presets.getOptional(RegistryKey.of(RegistryKeys.WORLD_PRESET, Identifier.ofVanilla("normal")))
+            .map(RegistryEntry::value).orElse(null);
+        DimensionOptions overworld = normal != null ? normal.getOverworld().orElse(null) : null;
         if (overworld != null && overworld.chunkGenerator() instanceof NoiseChunkGenerator) {
             return overworld;
+        }
+
+        // 2) #minecraft:normal 标签里的第一个预设
+        for (RegistryEntryList.Named<WorldPreset> named : presets.getTags().toList()) {
+            if (!WorldPresetTags.NORMAL.equals(named.getTag())) continue;
+            for (RegistryEntry<WorldPreset> entry : named) {
+                DimensionOptions candidate = entry.value().getOverworld().orElse(null);
+                if (candidate != null && candidate.chunkGenerator() instanceof NoiseChunkGenerator) {
+                    return candidate;
+                }
+            }
+        }
+
+        // 3) 兜底：数据包自带的 dimension 注册表扫描
+        Registry<DimensionOptions> registry = dimensions.getOrThrow(RegistryKeys.DIMENSION);
+        DimensionOptions legacy = registry.get(RegistryKey.of(RegistryKeys.DIMENSION, Identifier.ofVanilla("overworld")));
+        if (legacy != null && legacy.chunkGenerator() instanceof NoiseChunkGenerator) {
+            return legacy;
         }
         return registry.streamEntries()
             .map(RegistryEntry::value)

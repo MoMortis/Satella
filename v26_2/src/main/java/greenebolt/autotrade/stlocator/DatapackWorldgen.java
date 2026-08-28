@@ -2,11 +2,13 @@ package greenebolt.autotrade.stlocator;
 
 import com.mojang.datafixers.DataFixer;
 import com.mojang.datafixers.util.Pair;
+import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.RegistryDataLoader;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.RegistryLayer;
 import net.minecraft.server.WorldLoader;
@@ -124,17 +126,37 @@ public final class DatapackWorldgen implements AutoCloseable {
             combined.addAll(dimensionList);
             RegistryAccess.Frozen dimsAccess = frozenAccess(combined);
 
+            // 原版维度不在 level_stem 数据目录中，而是定义在 world preset（#minecraft:normal）里；
+            // level_stem 注册表通常只有第三方数据包自带的维度（如 nullscape 的 end），不能直接选
             LevelStem stem = null;
             NoiseBasedChunkGenerator generator = null;
-            Registry<LevelStem> stems = dimsAccess.lookupOrThrow(Registries.LEVEL_STEM);
-            for (LevelStem candidate : stems) {
-                boolean overworld = LevelStem.OVERWORLD.equals(stems.getResourceKey(candidate).orElse(null));
-                if ((overworld || generator == null) && candidate.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
-                    stem = candidate;
-                    generator = noiseGen;
+            Registry<net.minecraft.world.level.levelgen.presets.WorldPreset> presets =
+                dimsAccess.lookupOrThrow(Registries.WORLD_PRESET);
+            net.minecraft.world.level.levelgen.presets.WorldPreset normal = presets
+                .get(ResourceKey.create(Registries.WORLD_PRESET, Identifier.withDefaultNamespace("normal")))
+                .map(Holder::value).orElse(null);
+            LevelStem overworld = normal != null ? normal.overworld().orElse(null) : null;
+            if (overworld == null) {
+                for (Holder<net.minecraft.world.level.levelgen.presets.WorldPreset> entry : presets.getTagOrEmpty(net.minecraft.tags.WorldPresetTags.NORMAL)) {
+                    overworld = entry.value().overworld().orElse(null);
+                    if (overworld != null) break;
                 }
-                if (overworld) {
-                    break;
+            }
+            if (overworld != null && overworld.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
+                stem = overworld;
+                generator = noiseGen;
+            }
+            if (generator == null) {
+                Registry<LevelStem> stems = dimsAccess.lookupOrThrow(Registries.LEVEL_STEM);
+                for (LevelStem candidate : stems) {
+                    boolean overworldKey = LevelStem.OVERWORLD.equals(stems.getResourceKey(candidate).orElse(null));
+                    if ((overworldKey || generator == null) && candidate.generator() instanceof NoiseBasedChunkGenerator noiseGen) {
+                        stem = candidate;
+                        generator = noiseGen;
+                    }
+                    if (overworldKey) {
+                        break;
+                    }
                 }
             }
             if (generator == null) {
