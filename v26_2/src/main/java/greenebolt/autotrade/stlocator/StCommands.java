@@ -106,7 +106,7 @@ public final class StCommands {
                 }
                 BlockPos pos = result.getFirst();
                 sendCoordinates(source, pos, biomeId.toString());
-                send(source, Component.literal(StLocator.xaeroWaypoint(biomeId.toString(), pos)));
+                send(source, waypointMessage(StLocator.xaeroWaypoint(biomeId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("群系搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
@@ -131,7 +131,7 @@ public final class StCommands {
                     return;
                 }
                 sendCoordinates(source, pos, structureId.toString());
-                send(source, Component.literal(StLocator.xaeroWaypoint(structureId.toString(), pos)));
+                send(source, waypointMessage(StLocator.xaeroWaypoint(structureId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("结构搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
@@ -163,7 +163,7 @@ public final class StCommands {
                 }
                 send(source, Component.literal(sb.toString()));
                 for (StLocator.StructureHit hit : hits) {
-                    send(source, Component.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                    send(source, waypointMessage(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
                 }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近结构搜索失败", e);
@@ -196,7 +196,7 @@ public final class StCommands {
                 }
                 send(source, Component.literal(sb.toString()));
                 for (StLocator.BiomeHit hit : hits) {
-                    send(source, Component.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                    send(source, waypointMessage(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
                 }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近群系搜索失败", e);
@@ -204,6 +204,14 @@ public final class StCommands {
             }
         });
         return 1;
+    }
+
+    /** 航点串消息：点击即触发 Xaero 的导入指令（与 Xaero 自带导入按钮一致） */
+    private static Component waypointMessage(String wp) {
+        return Component.literal(wp).withStyle(style -> style
+            .withColor(net.minecraft.ChatFormatting.GRAY)
+            .withClickEvent(new net.minecraft.network.chat.ClickEvent.RunCommand(
+                "/xaero_waypoint_add:" + wp.substring("xaero-waypoint:".length()))));
     }
 
     private static void sendCoordinates(FabricClientCommandSource source, BlockPos pos, String name) {
