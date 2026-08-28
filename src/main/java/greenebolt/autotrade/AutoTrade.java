@@ -59,6 +59,10 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
         AutoTradeConfigs.register();
         ShulkerCompatConfig.load();
 
+        greenebolt.autotrade.stlocator.StLocator.init(
+                net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("satella"));
+        greenebolt.autotrade.stlocator.StCommands.register();
+
         Registry.CONFIG_SCREEN.registerConfigScreenFactory(
                 new ModInfo(MOD_ID, "Satella", AutoTradeConfigGui::new));
 
