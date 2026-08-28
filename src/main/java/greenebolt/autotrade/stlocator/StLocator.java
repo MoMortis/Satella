@@ -104,6 +104,11 @@ public final class StLocator {
         return templateSession;
     }
 
+    /** 是否配置了任何多环环规则（有规则时指令不再强制要求全局种子） */
+    public static boolean hasRules() {
+        return !parseRules(greenebolt.autotrade.AutoTradeConfigs.Trade.ST_RULES.getStrings()).isEmpty();
+    }
+
     /** 单条多环规则：[min, max] 切比雪夫距离环 → 种子 + 数据包子集（空 = 全部） */
     public record StRule(int min, int max, long seed, List<String> packs) {}
 

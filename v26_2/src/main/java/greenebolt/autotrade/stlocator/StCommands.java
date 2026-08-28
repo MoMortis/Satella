@@ -30,7 +30,7 @@ public final class StCommands {
             literal("st")
                 .then(literal("seed")
                     .executes(ctx -> {
-                        if (!StLocator.hasSeed()) {
+                        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
                             ctx.getSource().sendError(Component.literal("§c尚未设置种子，使用 /st seed <种子>"));
                             return 0;
                         }
@@ -79,7 +79,7 @@ public final class StCommands {
     }
 
     private static int executeLocateBiome(FabricClientCommandSource source, Identifier biomeId) {
-        if (!StLocator.hasSeed()) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
             source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
             return 0;
         }
@@ -105,7 +105,7 @@ public final class StCommands {
     }
 
     private static int executeLocateStructure(FabricClientCommandSource source, Identifier structureId) {
-        if (!StLocator.hasSeed()) {
+        if (!StLocator.hasSeed() && !StLocator.hasRules()) {
             source.sendError(Component.literal("§c请先用 /st seed <种子> 设置默认种子（环规则里的种子不受影响）"));
             return 0;
         }
