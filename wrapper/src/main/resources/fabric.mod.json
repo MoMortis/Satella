@@ -1,0 +1,14 @@
+{
+    "schemaVersion": 1,
+    "id": "satella-wrapper",
+    "version": "${version}",
+    "name": "Satella",
+    "description": "Automatically trade away selected items with one click!",
+    "authors": ["PetraSM"],
+    "icon": "assets/satella-wrapper/icon.png",
+    "environment": "client",
+    "depends": {
+        "fabricloader": ">=0.19.3",
+        "satella": ">=1.0.0"
+    }
+}

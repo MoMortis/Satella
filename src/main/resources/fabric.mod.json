@@ -1,31 +1,39 @@
 {
 	"schemaVersion": 1,
-	"id": "auto-trade",
+	"id": "satella",
 	"version": "${version}",
-	"name": "Auto Trade",
+	"name": "Satella",
 	"description": "Automatically trade away selected items with one click!",
 	"authors": [
-		"GreeneBolt"
+		"PetraSM"
 	],
-	"contact": {
-		"homepage": "https://modrinth.com/user/GreeneBolt",
-		"sources": "https://github.com/greenebolt/auto-trade/tree/main"
-	},
-	"license": "CC0-1.0",
-	"icon": "assets/auto-trade/icon.png",
-	"environment": "*",
+	"icon": "assets/satella/icon.png",
+	"environment": "client",
 	"entrypoints": {
 		"main": [
 			"greenebolt.autotrade.AutoTrade"
+		],
+		"modmenu": [
+			"greenebolt.autotrade.compat.ModMenuIntegration"
 		]
 	},
 	"mixins": [
-		"auto-trade.mixins.json"
+		"satella.mixins.json"
 	],
+	"accessWidener": "satella.classtweaker",
 	"depends": {
-		"fabricloader": ">=0.19.2",
-		"minecraft": "~26.1",
-		"java": ">=25",
-		"fabric-api": "*"
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*",
+		"malilib": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	},
+	"custom": {
+		"modmenu": {
+			"parent": "satella-wrapper"
+		}
 	}
 }

@@ -1,0 +1,56 @@
+plugins {
+    id 'java'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/26.2-Fabric 0.19.3.jar')
+    compileOnly files('D:/PCL2/.minecraft/libraries/net/fabricmc/fabric-loader/0.19.3/fabric-loader-0.19.3.jar')
+    compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/fabric-api-0.157.0+26.2.jar')
+    compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/malilib-fabric-26.2-0.29.3.jar')
+    compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/[物品滚轮] itemscroller-fabric-26.2-0.32.1.jar')
+    compileOnly files('D:/PCL2/.minecraft/versions/26.2-Fabric 0.19.3/mods/[模组菜单] modmenu-20.0.1.jar')
+    compileOnly files('D:/PCL2/.minecraft/libraries/net/fabricmc/sponge-mixin/0.17.3+mixin.0.8.7/sponge-mixin-0.17.3+mixin.0.8.7.jar')
+    compileOnly fileTree(dir: 'D:/PCL2/.minecraft/libraries', include: '**/*.jar')
+}
+
+sourceSets {
+    main {
+        java.srcDirs = ['src/main/java']
+        resources.srcDirs = ['src/main/resources']
+    }
+}
+
+processResources {
+    filesMatching('fabric.mod.json') {
+        expand(version: project.version)
+    }
+}
+
+// Compile with a forked JDK 25 toolchain so a single Gradle invocation on JDK 21
+// (the root loom build) can still build the 26.2 subproject.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+tasks.named('jar') {
+    archiveFileName = "satella-mc26.2-${project.mod_version}.jar"
+}
+
+tasks.register('installPetra', Copy) {
+    dependsOn tasks.named('jar')
+    from tasks.named('jar').flatMap { it.archiveFile }
+    into 'D:/PCL2/.minecraft/versions/Petra/mods'
+}

@@ -1,0 +1,12 @@
+{
+  "key.satella.toggle": "Toggle Auto Trade",
+  "key.satella.mode": "Switch Trade Mode",
+  "key.category.satella": "Auto Trade",
+  "satella.title.configs": "Satella Configs",
+  "satella.config.betterCrossbow": "Better Crossbow",
+  "satella.config.betterCrossbowInterval": "Better Crossbow Interval",
+  "satella.config.serverShulkerCompat": "Server Quick Shulker Compatibility",
+  "satella.config.residualCrafting": "Residual Crafting",
+  "satella.config.autoCrafting": "Automatic Crafting",
+  "satella.config.autoCraftingKey": "Toggle Automatic Crafting"
+}

@@ -1,0 +1,27 @@
+{
+	"required": true,
+	"package": "greenebolt.autotrade.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"plugin": "greenebolt.autotrade.mixin.ShulkerCompatMixinPlugin",
+	"mixins": [
+		"MinecraftClientInvoker",
+		"MouseMixin",
+		"MerchantMixin",
+		"EntityGlowMixin",
+		"InteractionMixin",
+		"ScreenOpenMixin"
+		,"GlintItemRendererMixin"
+		,"GlintEquipmentRendererMixin"
+		,"GlintBufferBuilderStorageMixin"
+		,"itemscroller.KeybindCallbacksMixin"
+		,"itemscroller.InventoryUtilsMixin"
+		,"ipn.ItemTypeMixin"
+		,"tweakeroo.InventoryUtilsMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

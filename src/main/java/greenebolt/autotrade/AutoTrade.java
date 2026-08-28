@@ -1,178 +1,300 @@
 package greenebolt.autotrade;
 
-import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.context.CommandContext;
+import fi.dy.masa.malilib.config.ConfigManager;
+import fi.dy.masa.malilib.config.IConfigOptionListEntry;
+import fi.dy.masa.malilib.event.InputEventHandler;
+import fi.dy.masa.malilib.hotkeys.IHotkeyCallback;
+import fi.dy.masa.malilib.hotkeys.IKeybind;
+import fi.dy.masa.malilib.hotkeys.IKeybindManager;
+import fi.dy.masa.malilib.hotkeys.IKeybindProvider;
+import fi.dy.masa.malilib.hotkeys.KeyAction;
+import fi.dy.masa.malilib.registry.Registry;
+import fi.dy.masa.malilib.util.InfoUtils;
+import fi.dy.masa.malilib.util.data.ModInfo;
+import greenebolt.autotrade.gui.AutoTradeConfigGui;
 import net.fabricmc.api.ModInitializer;
-
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
-import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
-import net.minecraft.ChatFormatting;
-import net.minecraft.client.KeyMapping;
-import net.minecraft.client.Minecraft;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.game.ServerboundInteractPacket;
-import net.minecraft.network.protocol.game.ServerboundSwingPacket;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.entity.Entity;
+import net.minecraft.item.CrossbowItem;
+import net.minecraft.item.ItemStack;
+import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import net.minecraft.util.Hand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.lwjgl.glfw.GLFW;
 
-import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
-public class AutoTrade implements ModInitializer {
-	public static final String MOD_ID = "auto-trade";
-	public static final String VERSION = "1.0.0";
+public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallback {
+    public static final String MOD_ID = "satella";
+    public static final String VERSION = "1.0.0";
+    public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+    public static List<Integer> tradeOfferIndex = new ArrayList<>();
+    public static List<Integer> tradeUsesLeft = new ArrayList<>();
+    // 每个交易每次 SelectMerchantTrade（服务端 autofill 填满输入槽）后能支撑的成交次数
+    public static List<Integer> tradeRefillCount = new ArrayList<>();
 
-	public static TradeState state = TradeState.IDLE;
-	public static List<Integer> tradeOfferIndex = new ArrayList<>();
-	public static List<Integer> tradeUsesLeft = new ArrayList<>();
-	public static Config config;
+    private static final Set<Integer> trackedVillagers = new LinkedHashSet<>();
+    private static UUID trackedVillagerUuid;
+    private static final Map<Integer, Boolean> lastTradeState = new HashMap<>();
+    private static Entity lastInteractedEntity;
+    private static boolean autoOpening = false;
+    private int tickCounter;
+    private int betterCrossbowCounter;
+    private boolean betterCrossbowActive;
+    private static boolean physicalUseKeyDown;
 
-	private int tickCounter;
+    @Override
+    public void onInitialize() {
+        AutoTradeConfigs.register();
+        ShulkerCompatConfig.load();
 
-	@Override
-	public void onInitialize() {
+        Registry.CONFIG_SCREEN.registerConfigScreenFactory(
+                new ModInfo(MOD_ID, "Satella", AutoTradeConfigGui::new));
 
-		// Initialize config
-		Minecraft mc = Minecraft.getInstance();
-		config = new Config(mc.gameDirectory.getAbsolutePath() + File.separator + "config" + File.separator + "autotrade" + File.separator + "AutoTradeConfig.json");
-		config.read();
+        AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.MODE_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind().setCallback(this);
+        InputEventHandler.getKeybindManager().registerKeybindProvider(this);
 
-		String KEY = "key.autotrade.trade";
-		KeyMapping.Category CATEGORY = KeyMapping.Category.register(Identifier.parse("autotrade"));
-		KeyMapping tradekey;
-		tradekey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-				KEY,
-				InputConstants.Type.KEYSYM,
-				GLFW.GLFW_KEY_V,
-				CATEGORY
-		));
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            // 进入世界后再预热物品名映射，此时语言包已加载，中文等显示名才能匹配到
+            if (client.world != null) {
+                ItemNameUtils.warmup();
+            }
+            tickBetterCrossbow(client);
+            AutoCraftController.tick(client);
+            tickCounter++;
+            if (tickCounter >= AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) {
+                tickCounter = 0;
+                if (client.player == null || client.world == null || !AutoTradeConfigs.isEnabled()
+                        || !AutoTradeConfigs.isAutoMode()) {
+                    return;
+                }
+                pollNextVillager(client);
+            }
+        });
+    }
 
-		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			if (tradekey.consumeClick()) {
-				toggleAutoTrade();
-			}
-		});
+    private void tickBetterCrossbow(MinecraftClient client) {
+        if (client.player == null || client.world == null || client.currentScreen != null
+                || !AutoTradeConfigs.Trade.BETTER_CROSSBOW.getBooleanValue()
+                || !physicalUseKeyDown || !isHoldingCrossbow(client)) {
+            resetBetterCrossbow(client);
+            return;
+        }
 
-		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
-				dispatcher.register(
-						ClientCommands.literal("autotrade")
-								.then(ClientCommands.literal("add")
-										.then(ClientCommands.argument("itemtype", StringArgumentType.string())
-												.executes(AutoTrade::add)))
-								.then(ClientCommands.literal("remove")
-										.then(ClientCommands.argument("itemtype", StringArgumentType.string())
-												.executes(AutoTrade::remove)))
-								.then(ClientCommands.literal("list")
-										.executes(AutoTrade::list))
-				)
-		);
+        if (!betterCrossbowActive) {
+            betterCrossbowActive = true;
+            betterCrossbowCounter = 0;
+            setUseKey(client, true);
+            return;
+        }
 
-		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			tickCounter++;
-			if (tickCounter >= 10) {
-				if (client.player != null && state == TradeState.PROXIMITY_TRADE) {
-					tradeWithNearbyVillager();
-				}
-				tickCounter = 0;
-			}
-		});
+        // Keep the vanilla use key pressed first, then perform the periodic click.
+        setUseKey(client, true);
+        if (++betterCrossbowCounter >= AutoTradeConfigs.Trade.BETTER_CROSSBOW_INTERVAL.getIntegerValue()) {
+            betterCrossbowCounter = 0;
+            ((AutoTradeMinecraftClient) client).autoTrade$doItemUse();
+        }
+    }
 
-	}
+    private static boolean isHoldingCrossbow(MinecraftClient client) {
+        return isCrossbow(client.player.getMainHandStack()) || isCrossbow(client.player.getOffHandStack());
+    }
 
-	public void toggleAutoTrade() {
-		assert Minecraft.getInstance().player != null;
-		if (state == TradeState.IDLE) {
-            Minecraft.getInstance().player.sendOverlayMessage(Component.literal("Autotrading is on..."));
-			state = TradeState.INSTANT_TRADE;
-		}
-		else if (state == TradeState.INSTANT_TRADE){
-			Minecraft.getInstance().player.sendOverlayMessage(Component.literal("Proximity trading is on..."));
-			state = TradeState.PROXIMITY_TRADE;
-		} else {
-			Minecraft.getInstance().player.sendOverlayMessage(Component.literal("Autotrading is off..."));
-			state = TradeState.IDLE;
-		}
-	}
+    private static boolean isCrossbow(ItemStack stack) {
+        return stack.getItem() instanceof CrossbowItem;
+    }
 
-	public void tradeWithNearbyVillager() {
+    private void resetBetterCrossbow(MinecraftClient client) {
+        if (betterCrossbowActive) {
+            setUseKey(client, false);
+        }
+        betterCrossbowActive = false;
+        betterCrossbowCounter = 0;
+    }
 
-		Minecraft mc = Minecraft.getInstance();
-		assert mc.level != null;
-		assert mc.player != null;
+    private static void setUseKey(MinecraftClient client, boolean pressed) {
+        KeyBinding.setKeyPressed(client.options.useKey.getDefaultKey(), pressed);
+    }
 
-		double closestDistance = Double.POSITIVE_INFINITY;
-		Villager closestVillager = null;
+    public static void updatePhysicalUseKeyState(boolean pressed) {
+        physicalUseKeyDown = pressed;
+    }
 
-		for (Entity entity : mc.level.entitiesForRendering()) {
-			if (entity instanceof Villager && mc.player.distanceTo(entity) < mc.player.entityInteractionRange() && mc.player.distanceTo(entity) < closestDistance) {
-				closestVillager = (Villager) entity;
-			}
-		}
-		if (closestVillager == null) return;
+    @Override
+    public void addKeysToMap(IKeybindManager manager) {
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.MODE_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind());
+    }
 
-		// Max interaction range is 4
-		assert mc.gameMode != null;
+    @Override
+    public void addHotkeys(IKeybindManager manager) {
+        manager.addHotkeysForCategory(MOD_ID, "自动交易", List.of(
+                AutoTradeConfigs.Trade.TOGGLE_KEY,
+                AutoTradeConfigs.Trade.MODE_KEY,
+                AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY));
+    }
 
-		// Send Packet so that mixin can handle results
-		InteractionResult result = null;
-		result = mc.gameMode.interact(mc.player, closestVillager, new EntityHitResult(closestVillager), InteractionHand.MAIN_HAND);
-		mc.player.swing(InteractionHand.MAIN_HAND, true);
-		mc.player.connection
-				.send(new ServerboundSwingPacket(InteractionHand.MAIN_HAND));
-		mc.player.connection
-				.send(new ServerboundInteractPacket(closestVillager.getId(), InteractionHand.MAIN_HAND, mc.player.position(), false));
+    @Override
+    public boolean onKeyAction(KeyAction action, IKeybind key) {
+        if (key == AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind()) {
+            toggleEnabled();
+        } else if (key == AutoTradeConfigs.Trade.MODE_KEY.getKeybind()) {
+            cycleMode();
+        } else if (key == AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind()) {
+            AutoCraftController.toggle();
+        }
+        return true;
+    }
 
+    public void toggleEnabled() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null) {
+            return;
+        }
 
-		if(result != InteractionResult.SUCCESS) {
-			mc.player.sendSystemMessage(Component.literal("Failed to send packet..."));
-		}
+        boolean enabled = !AutoTradeConfigs.isEnabled();
+        AutoTradeConfigs.Trade.ENABLED.setBooleanValue(enabled);
+        ConfigManager.getInstance().onConfigsChanged(MOD_ID);
 
-	}
+        if (enabled) {
+            InfoUtils.sendVanillaMessage(Text.literal("自动交易已开启 (").formatted(Formatting.GREEN)
+                    .append(Text.literal("模式: " + AutoTradeConfigs.Trade.MODE.getOptionListValue().getDisplayName())));
+        } else {
+            trackedVillagers.clear();
+            trackedVillagerUuid = null;
+            lastTradeState.clear();
+            InfoUtils.sendVanillaMessage(Text.literal("自动交易已关闭").formatted(Formatting.RED));
+        }
 
-	private static int add(CommandContext<FabricClientCommandSource> context) {
-		assert Minecraft.getInstance().player != null;
-		String itemToAdd = StringArgumentType.getString(context, "itemtype");
-		Identifier itemId = Identifier.parse("minecraft:" + itemToAdd);
-		if (BuiltInRegistries.ITEM.containsKey(itemId)) {
-			List<String> items = new ArrayList<>(Arrays.stream(Config.targetItems).toList());
-			items.add(itemToAdd);
-			Config.targetItems = items.toArray(new String[0]);
-			Config.save();
-            Minecraft.getInstance().player.sendSystemMessage(Component.literal("Added item: " + itemToAdd).withStyle(ChatFormatting.GREEN));
-		} else Minecraft.getInstance().player.sendSystemMessage(Component.literal(itemToAdd + " is not a valid item...").withStyle(ChatFormatting.RED));
-		return 1;
-	}
-	private static int remove(CommandContext<FabricClientCommandSource> context) {
-		assert Minecraft.getInstance().player != null;
-		String itemToRemove = StringArgumentType.getString(context, "itemtype");
-		List<String> items = new ArrayList<>(Arrays.stream(Config.targetItems).toList());
-		if (items.remove(itemToRemove)) {
-			Config.targetItems = items.toArray(new String[0]);
-			Config.save();
-			Minecraft.getInstance().player.sendSystemMessage(Component.literal("Removed item: " + itemToRemove).withStyle(ChatFormatting.GREEN));
-		} else Minecraft.getInstance().player.sendSystemMessage(Component.literal(itemToRemove + " is not in the list of AutoTrade items...").withStyle(ChatFormatting.RED));
-		return 1;
-	}
-	private static int list(CommandContext<FabricClientCommandSource> context) {
-		assert Minecraft.getInstance().player != null;
-		Minecraft.getInstance().player.sendSystemMessage(Component.literal("AutoTrade items: " + String.join(", ", Config.targetItems)).withStyle(ChatFormatting.GREEN));
-		return 1;
-	}
+        tradeOfferIndex.clear();
+        tradeUsesLeft.clear();
+        tradeRefillCount.clear();
+    }
+
+    public void cycleMode() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null) {
+            return;
+        }
+
+        IConfigOptionListEntry newMode = AutoTradeConfigs.Trade.MODE.getOptionListValue().cycle(true);
+        AutoTradeConfigs.Trade.MODE.setOptionListValue(newMode);
+        ConfigManager.getInstance().onConfigsChanged(MOD_ID);
+
+        InfoUtils.sendVanillaMessage(Text.literal("交易模式已切换: ").formatted(Formatting.YELLOW)
+                .append(Text.literal(newMode.getDisplayName()).formatted(Formatting.GOLD)));
+
+        tradeOfferIndex.clear();
+        tradeUsesLeft.clear();
+        tradeRefillCount.clear();
+    }
+
+    private void pollNextVillager(MinecraftClient client) {
+        if (trackedVillagers.isEmpty()) {
+            return;
+        }
+
+        List<Integer> ids = new ArrayList<>(trackedVillagers);
+        ids.removeIf(id -> {
+            Entity entity = client.world.getEntityById(id);
+            if (!(entity instanceof VillagerEntity)) {
+                return true;
+            }
+            return entity.isRemoved() || client.player.squaredDistanceTo(entity) > 8.0 * 8.0;
+        });
+        trackedVillagers.retainAll(ids);
+        lastTradeState.keySet().removeIf(id -> !trackedVillagers.contains(id));
+
+        if (ids.isEmpty()) {
+            return;
+        }
+
+        Entity target = client.world.getEntityById(ids.get(0));
+        if (target instanceof VillagerEntity villager && client.interactionManager != null) {
+            autoOpening = true;
+            client.interactionManager.interactEntity(client.player, villager, Hand.MAIN_HAND);
+            autoOpening = false;
+        }
+    }
+
+    public static void onInteractEntity(Entity entity) {
+        if (autoOpening || !(entity instanceof VillagerEntity)) {
+            return;
+        }
+        lastInteractedEntity = entity;
+
+        if (!AutoTradeConfigs.isEnabled() || !AutoTradeConfigs.isAutoMode()) {
+            return;
+        }
+        if (trackedVillagers.contains(entity.getId())) {
+            return;
+        }
+        trackedVillagers.clear();
+        lastTradeState.clear();
+        trackedVillagers.add(entity.getId());
+        trackedVillagerUuid = entity.getUuid();
+        InfoUtils.sendVanillaMessage(Text.literal("已标记为目标村民，将自动轮询交易（发光标记）").formatted(Formatting.GREEN));
+    }
+
+    public static boolean isHighlighted(Entity entity) {
+        return trackedVillagerUuid != null && trackedVillagerUuid.equals(entity.getUuid());
+    }
+
+    public static int getCurrentVillagerId() {
+        if (lastInteractedEntity instanceof VillagerEntity) {
+            return lastInteractedEntity.getId();
+        }
+        return -1;
+    }
+
+    public static boolean isTracked(int villagerId) {
+        return trackedVillagers.contains(villagerId);
+    }
+
+    public static void onVillagerBuying(int villagerId) {
+        if (villagerId < 0) {
+            return;
+        }
+        lastTradeState.put(villagerId, true);
+    }
+
+    public static void onVillagerBoughtOut(int villagerId, String reason) {
+        if (villagerId < 0 || !trackedVillagers.contains(villagerId)) {
+            InfoUtils.sendVanillaMessage(Text.literal("该村民的交易已全部买空")
+                    .formatted(Formatting.YELLOW)
+                    .append(Text.literal(reason.isEmpty() ? "" : "（" + reason + "）").formatted(Formatting.RED)));
+            return;
+        }
+        if (!Boolean.FALSE.equals(lastTradeState.get(villagerId))) {
+            lastTradeState.put(villagerId, false);
+            InfoUtils.sendVanillaMessage(Text.literal("村民已买空，将继续按间隔轮询检查（补充背包后会自动继续）")
+                    .formatted(Formatting.YELLOW)
+                    .append(Text.literal(reason.isEmpty() ? "" : "（" + reason + "）").formatted(Formatting.RED)));
+        }
+    }
+
+    public static void onVillagerNoTrades(int villagerId) {
+        if (villagerId < 0 || !trackedVillagers.contains(villagerId)) {
+            InfoUtils.sendVanillaMessage(Text.literal("该村民没有匹配的交易").formatted(Formatting.RED));
+            return;
+        }
+        if (!Boolean.FALSE.equals(lastTradeState.get(villagerId))) {
+            lastTradeState.put(villagerId, false);
+            InfoUtils.sendVanillaMessage(Text.literal("该村民没有匹配的交易，将继续按间隔轮询检查").formatted(Formatting.YELLOW));
+        }
+    }
 }

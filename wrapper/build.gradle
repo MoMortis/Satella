@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+// Submods that get bundled as nested jars (META-INF/jars/).
+def submods = [
+    rootProject.tasks.named('remapJar'),   // MC 1.21.11 (root project)
+    project(':v26_2').tasks.named('jar')   // MC 26.2
+]
+
+tasks.register('collectSubModules', Copy) {
+    dependsOn submods
+
+    into layout.buildDirectory.dir('tmp/submods/META-INF/jars')
+
+    from(rootProject.layout.buildDirectory.dir('libs')) {
+        include 'satella-mc1.21.11-*.jar'
+    }
+    from(project(':v26_2').layout.buildDirectory.dir('libs')) {
+        include 'satella-mc26.2-*.jar'
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    dependsOn tasks.named('collectSubModules')
+
+    filesMatching("fabric.mod.json") {
+        expand "version": inputs.properties.version
+    }
+
+    doLast {
+        def jarsDir = layout.buildDirectory.dir('tmp/submods/META-INF/jars').get().asFile
+        def jars = jarsDir.listFiles()
+            ?.findAll { it.name.endsWith('.jar') }
+            ?.sort { it.name }
+            ?.collect { [file: "META-INF/jars/${it.name}"] } ?: []
+
+        def jsonFile = layout.buildDirectory.file('resources/main/fabric.mod.json').get().asFile
+        if (jsonFile.exists()) {
+            def json = new groovy.json.JsonSlurper().parse(jsonFile) as Map
+            json['jars'] = jars
+            jsonFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(json))
+        }
+    }
+}
+
+tasks.named('jar') {
+    dependsOn tasks.named('processResources')
+    archiveFileName = 'Satella.jar'
+    from(layout.buildDirectory.dir('tmp/submods'))
+}
+
+tasks.register('installEmt', Copy) {
+    doNotTrackState('The workspace contains active Gradle lock files.')
+    dependsOn tasks.named('jar')
+    from tasks.named('jar').flatMap { it.archiveFile }
+    into rootProject.projectDir
+}

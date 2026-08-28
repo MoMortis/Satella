@@ -9,5 +9,7 @@ pluginManagement {
 	}
 }
 
-// Should match your modid
-rootProject.name = 'auto-trade'
+rootProject.name = 'satella'
+
+include 'v26_2'
+include 'wrapper'
