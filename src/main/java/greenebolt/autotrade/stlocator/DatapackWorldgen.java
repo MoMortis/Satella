@@ -11,6 +11,8 @@ import net.minecraft.registry.RegistryLoader;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.registry.ServerDynamicRegistryType;
 import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.registry.RegistryEntryLookup;
+import net.minecraft.block.Block;
 import net.minecraft.registry.tag.TagGroupLoader;
 import net.minecraft.resource.DataConfiguration;
 import net.minecraft.resource.FileResourcePackProvider;
@@ -129,20 +131,24 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
 
             ChunkGeneratorSettings settings = noiseGenerator.getSettings().value();
-            NoiseConfig noiseConfig = NoiseConfig.create(settings, dimensions.getOrThrow(RegistryKeys.NOISE_PARAMETERS), seed);
+            // 注意各查找的目标管理器：worldgen 注册表（噪声参数/结构集/群系/结构）在 dynamic（第一趟），
+            // dimension 注册表在 dimensions（第二趟），静态层（方块等）在 wrappers
+            NoiseConfig noiseConfig = NoiseConfig.create(settings, dynamic.getOrThrow(RegistryKeys.NOISE_PARAMETERS), seed);
             HeightLimitView heightView = HeightLimitView.create(
                 settings.generationShapeConfig().minimumY(), settings.generationShapeConfig().height());
             StructurePlacementCalculator placementCalculator = StructurePlacementCalculator.create(
-                noiseConfig, seed, noiseGenerator.getBiomeSource(), dimensions.getOrThrow(RegistryKeys.STRUCTURE_SET));
+                noiseConfig, seed, noiseGenerator.getBiomeSource(), dynamic.getOrThrow(RegistryKeys.STRUCTURE_SET));
+            RegistryEntryLookup<Block> blockLookup = findWrapper(wrappers, RegistryKeys.BLOCK);
             StructureTemplateManager templateManager = new StructureTemplateManager(
-                clientResources, templateSession, dataFixer, dimensions.getOrThrow(RegistryKeys.BLOCK));
+                clientResources, templateSession, dataFixer, blockLookup);
 
             List<String> loadedPacks = new ArrayList<>();
             for (var profile : packManager.getEnabledProfiles()) {
                 loadedPacks.add(profile.getId());
             }
 
-            return new DatapackWorldgen(dimensions, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
+            // 对外暴露 worldgen 管理器（群系/结构/结构集等都在这里），dimension 结果单独传入
+            return new DatapackWorldgen(dynamic, noiseGenerator, noiseConfig, noiseGenerator.getBiomeSource(),
                 heightView, placementCalculator, templateManager, resourceManager, loadedPacks, registryErrors);
         } catch (Exception e) {
             // 失败时释放已打开的资源包（zip 句柄）；模板会话由外部持久持有，不受影响
@@ -151,6 +157,16 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
             throw e;
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> RegistryWrapper.Impl<T> findWrapper(List<RegistryWrapper.Impl<?>> wrappers, RegistryKey<? extends Registry<T>> key) {
+        for (RegistryWrapper.Impl<?> wrapper : wrappers) {
+            if (key.equals(wrapper.getKey())) {
+                return (RegistryWrapper.Impl<T>) wrapper;
+            }
+        }
+        throw new IllegalStateException("Missing static registry: " + key.getValue());
     }
 
     private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dimensions) {

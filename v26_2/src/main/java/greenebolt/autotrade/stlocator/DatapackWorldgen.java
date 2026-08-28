@@ -87,10 +87,11 @@ public final class DatapackWorldgen implements AutoCloseable {
             Pair<WorldDataConfiguration, CloseableResourceManager> pair = packConfig.createResourceManager();
             resources = pair.getSecond();
 
-            // STATIC 层作为基础查找（方块等原版内置注册表）
-            List<HolderLookup.RegistryLookup<?>> base = new ArrayList<>();
+            // STATIC 层作为基础查找（方块等原版内置注册表）；Registry 本身就是 RegistryLookup
+            List<Registry<?>> staticRegistries = new ArrayList<>();
             RegistryLayer.createRegistryAccess().getLayer(RegistryLayer.STATIC)
-                .registries().forEach(entry -> base.add(entry.value()));
+                .registries().forEach(entry -> staticRegistries.add(entry.value()));
+            List<HolderLookup.RegistryLookup<?>> base = new ArrayList<>(staticRegistries);
 
             // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
             // 只跳过对应元素，不让整个注册表加载失败
@@ -117,7 +118,9 @@ public final class DatapackWorldgen implements AutoCloseable {
                 all, RegistryDataLoader.DIMENSION_REGISTRIES, resources, registryErrors);
 
             // 合并为一个 Frozen RegistryAccess 供查询与模板管理器使用
-            List<Registry<?>> combined = new ArrayList<>(worldgen);
+            // 静态层也要并入：BLOCK 等内置注册表只在 staticRegistries 里
+            List<Registry<?>> combined = new ArrayList<>(staticRegistries);
+            combined.addAll(worldgen);
             combined.addAll(dimensionList);
             RegistryAccess.Frozen dimsAccess = frozenAccess(combined);
 
