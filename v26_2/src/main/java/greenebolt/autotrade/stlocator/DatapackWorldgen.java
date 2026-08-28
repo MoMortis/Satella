@@ -94,12 +94,14 @@ public final class DatapackWorldgen implements AutoCloseable {
 
             // 容错加载：第三方数据包引用模组自定义注册表（如 lithostitched:fast_noise_config）时
             // 只跳过对应元素，不让整个注册表加载失败
-            // fabric DynamicRegistries（Datapack Registries）注册的模组自定义注册表
-            //（如 lithostitched:fast_noise_config）也要纳入加载，否则其密度函数无法解析
-            List<RegistryDataLoader.RegistryData<?>> worldgenEntries =
-                new ArrayList<>(RegistryDataLoader.WORLDGEN_REGISTRIES);
-            worldgenEntries.addAll(net.fabricmc.fabric.api.event.registry.DynamicRegistries.getWorldRegistries());
-            worldgenEntries.addAll(net.fabricmc.fabric.api.event.registry.DynamicRegistries.getBootstrappingRegistries());
+            // fabric DynamicRegistries（Datapack Registries）维护的动态注册表列表 =
+            // 原版 WORLDGEN_REGISTRIES + 模组自定义注册表（如 lithostitched:fast_noise_config），
+            // 必须用它而不是原版列表拼接，否则所有注册表都会重复
+            java.util.LinkedHashMap<ResourceKey<?>, RegistryDataLoader.RegistryData<?>> entriesByKey = new java.util.LinkedHashMap<>();
+            for (RegistryDataLoader.RegistryData<?> entry : net.fabricmc.fabric.api.event.registry.DynamicRegistries.getWorldRegistries()) {
+                entriesByKey.putIfAbsent(entry.key(), entry);
+            }
+            List<RegistryDataLoader.RegistryData<?>> worldgenEntries = List.copyOf(entriesByKey.values());
 
             Map<ResourceKey<?>, Exception> registryErrors = new HashMap<>();
             List<Registry<?>> worldgen = TolerantRegistryLoader.load(
