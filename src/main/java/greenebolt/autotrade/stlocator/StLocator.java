@@ -166,7 +166,11 @@ public final class StLocator {
         }
         RegistryEntry<Structure> entry = registry.getEntry(structureValue);
         List<StructurePlacement> placements = worldgen.placementCalculator.getPlacements(entry);
-        if (placements.isEmpty()) return null;
+        if (placements.isEmpty()) {
+            LOGGER.info("结构搜索 {}: placements 为空（结构集被群系过滤或未注册），biomeSource.getBiomes() 数量={}",
+                structureId, worldgen.biomeSource.getBiomes().size());
+            return null;
+        }
 
         Structure structure = entry.value();
         int centerChunkX = origin.getX() >> 4;
@@ -174,6 +178,7 @@ public final class StLocator {
 
         BlockPos best = null;
         double bestDist = Double.MAX_VALUE;
+        int[] diag = new int[4]; // 0=候选数 1=shouldGenerate通过 2=位置判定通过 3=群系失败
 
         for (StructurePlacement placement : placements) {
             if (placement instanceof ConcentricRingsStructurePlacement concentric) {
@@ -181,7 +186,8 @@ public final class StLocator {
                 List<ChunkPos> positions = worldgen.placementCalculator.getPlacementPositions(concentric);
                 if (positions == null) continue;
                 for (ChunkPos chunkPos : positions) {
-                    BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos);
+                    diag[0]++;
+                    BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos, diag);
                     if (pos != null) {
                         double d = pos.getSquaredDistance(origin);
                         if (d < bestDist) { bestDist = d; best = pos; }
@@ -198,7 +204,8 @@ public final class StLocator {
                         for (int dz = -k; dz <= k; dz++) {
                             if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
                             ChunkPos start = spread.getStartChunk(seed, centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
-                            BlockPos pos = checkStructureAt(worldgen, structure, placement, start);
+                            diag[0]++;
+                            BlockPos pos = checkStructureAt(worldgen, structure, placement, start, diag);
                             if (pos != null) {
                                 double d = pos.getSquaredDistance(origin);
                                 if (d < bestDist) { bestDist = d; best = pos; }
@@ -210,14 +217,17 @@ public final class StLocator {
                 }
             }
         }
+        LOGGER.info("结构搜索 {}: seed={}, placements={}, 候选={}, shouldGenerate 通过={}, 位置+群系判定通过={}, 群系失败={}",
+            structureId, seed, placements.size(), diag[0], diag[1], diag[2], diag[3]);
         return best;
     }
 
     @Nullable
-    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos) {
+    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos, int[] diag) {
         if (!placement.shouldGenerate(worldgen.placementCalculator, chunkPos.x, chunkPos.z)) {
             return null;
         }
+        diag[1]++;
         Structure.Context context = new Structure.Context(
             worldgen.registryManager,
             worldgen.noiseGenerator,
@@ -229,7 +239,12 @@ public final class StLocator {
             worldgen.heightView,
             structure.getValidBiomes()::contains);
         Optional<Structure.StructurePosition> position = structure.getValidStructurePosition(context);
-        return position.map(p -> placement.getLocatePos(chunkPos)).orElse(null);
+        if (position.isPresent()) {
+            diag[2]++;
+            return placement.getLocatePos(chunkPos);
+        }
+        diag[3]++;
+        return null;
     }
 
     public static Text error(String message) {

@@ -164,7 +164,11 @@ public final class StLocator {
         Registry<Structure> registry = worldgen.registryManager.lookupOrThrow(Registries.STRUCTURE);
         Holder<Structure> entry = registry.getOrThrow(ResourceKey.create(Registries.STRUCTURE, structureId));
         List<StructurePlacement> placements = worldgen.structureState.getPlacementsForStructure(entry);
-        if (placements.isEmpty()) return null;
+        if (placements.isEmpty()) {
+            LOGGER.info("结构搜索 {}: placements 为空（结构集被群系过滤或未注册），biomeSource.possibleBiomes 数量={}",
+                structureId, worldgen.biomeSource.possibleBiomes().size());
+            return null;
+        }
         worldgen.structureState.ensureStructuresGenerated();
 
         Structure structure = entry.value();
@@ -173,6 +177,7 @@ public final class StLocator {
 
         BlockPos best = null;
         double bestDist = Double.MAX_VALUE;
+        int[] diag = new int[4]; // 0=候选数 1=shouldGenerate通过 2=位置判定通过 3=群系失败
 
         for (StructurePlacement placement : placements) {
             if (placement instanceof ConcentricRingsStructurePlacement concentric) {
@@ -180,7 +185,8 @@ public final class StLocator {
                 List<ChunkPos> positions = worldgen.structureState.getRingPositionsFor(concentric);
                 if (positions == null) continue;
                 for (ChunkPos chunkPos : positions) {
-                    BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos);
+                    diag[0]++;
+                    BlockPos pos = checkStructureAt(worldgen, structure, placement, chunkPos, diag);
                     if (pos != null) {
                         double d = pos.distSqr(origin);
                         if (d < bestDist) { bestDist = d; best = pos; }
@@ -197,7 +203,8 @@ public final class StLocator {
                         for (int dz = -k; dz <= k; dz++) {
                             if (Math.abs(dx) != k && Math.abs(dz) != k) continue;
                             ChunkPos start = spread.getPotentialStructureChunk(seed, centerChunkX + spacing * dx, centerChunkZ + spacing * dz);
-                            BlockPos pos = checkStructureAt(worldgen, structure, placement, start);
+                            diag[0]++;
+                            BlockPos pos = checkStructureAt(worldgen, structure, placement, start, diag);
                             if (pos != null) {
                                 double d = pos.distSqr(origin);
                                 if (d < bestDist) { bestDist = d; best = pos; }
@@ -209,14 +216,17 @@ public final class StLocator {
                 }
             }
         }
+        LOGGER.info("结构搜索 {}: seed={}, placements={}, 候选={}, shouldGenerate 通过={}, 位置+群系判定通过={}, 群系失败={}",
+            structureId, seed, placements.size(), diag[0], diag[1], diag[2], diag[3]);
         return best;
     }
 
     
-    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos) {
+    private static BlockPos checkStructureAt(DatapackWorldgen worldgen, Structure structure, StructurePlacement placement, ChunkPos chunkPos, int[] diag) {
         if (!placement.isStructureChunk(worldgen.structureState, chunkPos.x(), chunkPos.z())) {
             return null;
         }
+        diag[1]++;
         Structure.GenerationContext context = new Structure.GenerationContext(
             worldgen.registryManager,
             worldgen.noiseGenerator,
@@ -233,8 +243,16 @@ public final class StLocator {
                 BlockPos p = stub.position();
                 Holder<Biome> biome = worldgen.biomeSource.getNoiseBiome(
                     p.getX() >> 2, p.getY() >> 2, p.getZ() >> 2, worldgen.randomState.sampler());
-                return structure.biomes().contains(biome) ? placement.getLocatePos(chunkPos) : null;
+                if (!structure.biomes().contains(biome)) {
+                    diag[3]++;
+                    return null;
+                }
+                diag[2]++;
+                return placement.getLocatePos(chunkPos);
             })
-            .orElse(null);
+            .orElseGet(() -> {
+                diag[3]++;
+                return null;
+            });
     }
 }
