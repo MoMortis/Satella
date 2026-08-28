@@ -47,11 +47,11 @@ public final class AutoTradeConfigs implements IConfigHandler {
 
         public static final ConfigStringList ST_RULES = new ConfigStringList(
                 "多环定位规则", ImmutableList.of(),
-                "按切比雪夫距离环选择种子与数据包，每条格式：最小距离-最大距离:种子[:数据包1|数据包2]\n"
+                "用 /st rules 指令打开编辑器配置。每条格式：最小距离-最大距离:种子[:数据包1|数据包2]\n"
                         + "距离 = 检索中心（玩家位置）到世界原点 (0,0) 的切比雪夫距离（方块）\n"
                         + "数据包为 config/satella/datapacks 下的 zip 文件名（可省略 .zip），用 | 分隔；省略数据包部分时使用全部\n"
                         + "例：0-4096:123456 与 4097-999999:654321:tectonic-datapack-3.0.18|Dungeons and Taverns v5.1.0\n"
-                        + "未命中任何环时，使用 /st seed 设置的全局种子和全部数据包");
+                        + "未命中任何环时，使用 /st seed 设置的全局种子且不加载任何数据包 zip");
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION,
                 INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, RESIDUAL_CRAFTING,
                 AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, ST_RULES);

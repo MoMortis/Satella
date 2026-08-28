@@ -118,7 +118,8 @@ public class StRulesEditorScreen extends GuiBase {
     }
 
     private static String describe(StLocator.StRule rule) {
-        String packs = rule.packs().isEmpty() ? "全部" : String.join("|", rule.packs());
+        String packs = rule.packs() == null ? "全部"
+            : (rule.packs().isEmpty() ? "无" : String.join("|", rule.packs()));
         return rule.min() + " - " + rule.max() + "    种子 " + rule.seed() + "    数据包: " + packs;
     }
 }

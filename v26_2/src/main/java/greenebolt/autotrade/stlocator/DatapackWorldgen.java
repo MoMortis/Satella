@@ -90,7 +90,7 @@ public final class DatapackWorldgen implements AutoCloseable {
             repo.reload();
             java.util.Set<String> enabled = new java.util.LinkedHashSet<>();
             for (String id : repo.getAvailableIds()) {
-                if (!id.startsWith("file/") || rulePacks.isEmpty() || matchesRulePack(id, rulePacks)) {
+                if (!id.startsWith("file/") || rulePacks == null || matchesRulePack(id, rulePacks)) {
                     enabled.add(id);
                 }
             }

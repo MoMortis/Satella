@@ -102,7 +102,7 @@ public final class DatapackWorldgen implements AutoCloseable {
             java.util.Set<String> enabled = new java.util.LinkedHashSet<>();
             for (net.minecraft.resource.ResourcePackProfile profile : packManager.getProfiles()) {
                 String id = profile.getId();
-                if (!id.startsWith("file/") || rulePacks.isEmpty() || matchesRulePack(id, rulePacks)) {
+                if (!id.startsWith("file/") || rulePacks == null || matchesRulePack(id, rulePacks)) {
                     enabled.add(id);
                 }
             }

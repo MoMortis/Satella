@@ -112,12 +112,12 @@ public final class StLocator {
     }
 
     /** 单条多环规则：[min, max] 切比雪夫距离环 → 种子 + 数据包子集（空 = 全部） */
-    public record StRule(int min, int max, long seed, List<String> packs) {}
+    public record StRule(int min, int max, long seed, List<String> packs) {} // packs: null=全部（省略数据包段），空=无，非空=指定列表
 
     /** 一次检索选中的配置 */
     public record Selected(long seed, List<String> packs, String description) {}
 
-    private record WorldgenKey(long seed, List<String> packs) {}
+    private record WorldgenKey(long seed, boolean allPacks, List<String> packs) {}
 
     private static final int CACHE_LIMIT = 6;
 
@@ -133,10 +133,15 @@ public final class StLocator {
                 int min = Integer.parseInt(range[0].trim());
                 int max = Integer.parseInt(range[1].trim());
                 long ruleSeed = Long.parseLong(parts[1].trim());
-                List<String> packs = List.of();
-                if (parts.length >= 3 && !parts[2].isBlank()) {
-                    packs = java.util.Arrays.stream(parts[2].split("\\|"))
-                        .map(String::trim).filter(str -> !str.isEmpty()).toList();
+                List<String> packs = null; // 省略数据包段 = 全部
+                if (parts.length >= 3) {
+                    packs = new ArrayList<>();
+                    for (String pack : parts[2].split("\\|")) {
+                        String p = pack.trim();
+                        if (!p.isEmpty()) {
+                            packs.add(p);
+                        }
+                    }
                 }
                 rules.add(new StRule(min, max, ruleSeed, packs));
             } catch (Exception e) {
@@ -156,27 +161,35 @@ public final class StLocator {
             if (dist >= rule.min() && dist <= rule.max()) {
                 return new Selected(rule.seed(), rule.packs(),
                     "环 " + rule.min() + "-" + rule.max() + "（种子 " + rule.seed() + "，数据包 "
-                        + (rule.packs().isEmpty() ? "全部" : String.join("|", rule.packs())) + "）");
+                        + packsDesc(rule.packs()) + "）");
             }
         }
         return new Selected(seed, List.of(),
-            "默认配置（未命中环规则，种子 " + seed + "，数据包全部）");
+            "默认配置（未命中环规则，种子 " + seed + "，数据包：无）");
     }
 
     /** 序列化一条规则为字符串（与 parseRules 互逆）：最小-最大:种子[:数据包1|数据包2] */
     public static String formatRule(StRule rule) {
         StringBuilder sb = new StringBuilder()
             .append(rule.min()).append('-').append(rule.max()).append(':').append(rule.seed());
-        if (!rule.packs().isEmpty()) {
+        if (rule.packs() != null) {
             sb.append(':').append(String.join("|", rule.packs()));
         }
         return sb.toString();
     }
 
-    /** 获取（必要时构建）指定种子与数据包子集的世界生成栈，带缓存。 */
-    public static DatapackWorldgen worldgen(long seed, List<String> packs) throws Exception {
-        List<String> keyPacks = packs.stream().map(String::trim).sorted().toList();
-        WorldgenKey key = new WorldgenKey(seed, keyPacks);
+    /** 数据包描述文本 */
+    private static String packsDesc(List<String> packs) {
+        if (packs == null) return "全部";
+        return packs.isEmpty() ? "无" : String.join("|", packs);
+    }
+
+    /** 获取（必要时构建）指定种子与数据包子集的世界生成栈，带缓存。
+     * packs 为 null 表示全部数据包，空列表表示不加载任何数据包 zip。 */
+    public static DatapackWorldgen worldgen(long seed, List<String> packs) throws Exception { // packs: null=全部，空=无
+        boolean allPacks = packs == null;
+        List<String> keyPacks = allPacks ? List.of() : packs.stream().map(String::trim).sorted().toList();
+        WorldgenKey key = new WorldgenKey(seed, allPacks, keyPacks);
         synchronized (worldgenCache) {
             DatapackWorldgen cached = worldgenCache.get(key);
             if (cached != null) {

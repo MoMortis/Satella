@@ -53,13 +53,18 @@ public final class StCommands {
                     .then(argument("structure", IdentifierArgument.id())
                         .suggests(StCommands::suggestStructures)
                         .executes(ctx -> executeLocateStructure(ctx.getSource(), ctx.getArgument("structure", Identifier.class)))))
+                .then(literal("rules")
+                    .executes(ctx -> {
+                        Minecraft.getInstance().setScreenAndShow(new StRulesEditorScreen(null));
+                        return 1;
+                    }))
                 .then(literal("reload")
                     .executes(ctx -> {
                         StLocator.reload();
                         ctx.getSource().sendFeedback(Component.literal("§7正在重新加载数据包（全部数据包 + 默认种子）…"));
                         CompletableFuture.runAsync(() -> {
                             try {
-                                send(ctx.getSource(), packSummary(StLocator.worldgen(StLocator.getSeed(), java.util.List.of())));
+                                send(ctx.getSource(), packSummary(StLocator.worldgen(StLocator.getSeed(), null)));
                             } catch (Exception e) {
                                 StLocator.LOGGER.error("加载数据包失败", e);
                                 send(ctx.getSource(), Component.literal("§c加载失败: " + e.getMessage()));
