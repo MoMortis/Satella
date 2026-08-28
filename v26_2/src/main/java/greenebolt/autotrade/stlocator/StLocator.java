@@ -368,10 +368,10 @@ public final class StLocator {
         int centerChunkX = origin.getX() >> 4;
         int centerChunkZ = origin.getZ() >> 4;
 
-        for (Holder<net.minecraft.world.level.levelgen.structure.StructureSet> setHolder
+        for (net.minecraft.world.level.levelgen.structure.StructureSet set
                 : worldgen.registryManager.lookupOrThrow(Registries.STRUCTURE_SET)) {
             for (net.minecraft.world.level.levelgen.structure.StructureSet.StructureSelectionEntry weighted
-                    : setHolder.value().structures()) {
+                    : set.structures()) {
                 Holder<Structure> structureEntry = weighted.structure();
                 List<StructurePlacement> placements = worldgen.structureState.getPlacementsForStructure(structureEntry);
                 if (placements.isEmpty()) continue;
@@ -446,9 +446,9 @@ public final class StLocator {
                     int x = origin.getX() + dx;
                     int z = origin.getZ() + dz;
                     Holder<Biome> biome = worldgen.biomeSource.getNoiseBiome(
-                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(x),
-                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(sampleY),
-                        net.minecraft.world.level.levelgen.QuartPos.fromBlock(z),
+                        net.minecraft.core.QuartPos.fromBlock(x),
+                        net.minecraft.core.QuartPos.fromBlock(sampleY),
+                        net.minecraft.core.QuartPos.fromBlock(z),
                         sampler);
                     Identifier id = biomeRegistry.getKey(biome.value());
                     if (id == null) continue;
@@ -463,5 +463,13 @@ public final class StLocator {
             }
         }
         return hits;
+    }
+    /** 生成 Xaero 小地图航点分享串（聊天栏出现时可被 Xaero 识别导入） */
+    public static String xaeroWaypoint(String id, BlockPos pos) {
+        String name = id.contains(":") ? id.substring(id.indexOf(':') + 1) : id;
+        String abbr = name.length() > 2 ? name.substring(0, 2) : name;
+        int y = pos.getY() <= 0 ? 64 : pos.getY();
+        return "xaero-waypoint:" + name + ":" + abbr + ":" + pos.getX() + ":" + y + ":"
+            + pos.getZ() + ":10:false:0:Internal-overworld";
     }
 }

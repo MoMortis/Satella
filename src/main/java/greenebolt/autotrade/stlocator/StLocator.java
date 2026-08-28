@@ -457,6 +457,15 @@ public final class StLocator {
         return hits;
     }
 
+    /** 生成 Xaero 小地图航点分享串（聊天栏出现时可被 Xaero 识别导入） */
+    public static String xaeroWaypoint(String id, BlockPos pos) {
+        String name = id.contains(":") ? id.substring(id.indexOf(':') + 1) : id;
+        String abbr = name.length() > 2 ? name.substring(0, 2) : name;
+        int y = pos.getY() <= 0 ? 64 : pos.getY();
+        return "xaero-waypoint:" + name + ":" + abbr + ":" + pos.getX() + ":" + y + ":"
+            + pos.getZ() + ":10:false:0:Internal-overworld";
+    }
+
     public static Text error(String message) {
         return Text.literal("§c" + message);
     }

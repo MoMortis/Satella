@@ -119,6 +119,7 @@ public final class StCommands {
                 }
                 BlockPos pos = result.getFirst();
                 sendCoordinates(source, pos, biomeId.toString(), false);
+                send(source, Text.literal(StLocator.xaeroWaypoint(biomeId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("群系搜索失败", e);
                 send(source, StLocator.error("搜索失败: " + e.getMessage()));
@@ -143,6 +144,7 @@ public final class StCommands {
                     return;
                 }
                 sendCoordinates(source, pos, structureId.toString(), true);
+                send(source, Text.literal(StLocator.xaeroWaypoint(structureId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("结构搜索失败", e);
                 send(source, StLocator.error("搜索失败: " + e.getMessage()));
@@ -173,6 +175,9 @@ public final class StCommands {
                         .append(" §7(距离 ").append(hit.distance()).append(" 格)");
                 }
                 send(source, Text.literal(sb.toString()));
+                for (StLocator.StructureHit hit : hits) {
+                    send(source, Text.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近结构搜索失败", e);
                 send(source, StLocator.error("搜索失败: " + e.getMessage()));
@@ -203,6 +208,9 @@ public final class StCommands {
                         .append(" §7(距离 ").append(hit.distance()).append(" 格)");
                 }
                 send(source, Text.literal(sb.toString()));
+                for (StLocator.BiomeHit hit : hits) {
+                    send(source, Text.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近群系搜索失败", e);
                 send(source, StLocator.error("搜索失败: " + e.getMessage()));

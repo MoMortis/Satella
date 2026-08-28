@@ -106,6 +106,7 @@ public final class StCommands {
                 }
                 BlockPos pos = result.getFirst();
                 sendCoordinates(source, pos, biomeId.toString());
+                send(source, Component.literal(StLocator.xaeroWaypoint(biomeId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("群系搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
@@ -130,6 +131,7 @@ public final class StCommands {
                     return;
                 }
                 sendCoordinates(source, pos, structureId.toString());
+                send(source, Component.literal(StLocator.xaeroWaypoint(structureId.toString(), pos)));
             } catch (Exception e) {
                 StLocator.LOGGER.error("结构搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
@@ -155,12 +157,14 @@ public final class StCommands {
                 }
                 StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 个结构：");
                 for (StLocator.StructureHit hit : hits) {
-                    sb.append("
-§7- §f").append(hit.id())
+                    sb.append("\n§7- §f").append(hit.id())
                         .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
                         .append(" §7(距离 ").append(hit.distance()).append(" 格)");
                 }
                 send(source, Component.literal(sb.toString()));
+                for (StLocator.StructureHit hit : hits) {
+                    send(source, Component.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近结构搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
@@ -186,12 +190,14 @@ public final class StCommands {
                 }
                 StringBuilder sb = new StringBuilder("§a最近的 " + hits.size() + " 种群系：");
                 for (StLocator.BiomeHit hit : hits) {
-                    sb.append("
-§7- §f").append(hit.id())
+                    sb.append("\n§7- §f").append(hit.id())
                         .append(" §7@ §f").append(hit.pos().getX()).append(" ").append(hit.pos().getZ())
                         .append(" §7(距离 ").append(hit.distance()).append(" 格)");
                 }
                 send(source, Component.literal(sb.toString()));
+                for (StLocator.BiomeHit hit : hits) {
+                    send(source, Component.literal(StLocator.xaeroWaypoint(hit.id().toString(), hit.pos())));
+                }
             } catch (Exception e) {
                 StLocator.LOGGER.error("就近群系搜索失败", e);
                 send(source, Component.literal("§c搜索失败: " + e.getMessage()));
