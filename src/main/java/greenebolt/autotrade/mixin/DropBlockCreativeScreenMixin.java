@@ -15,7 +15,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** 创造模式物品栏内丢弃（THROW 点击在创造界面走独立路径） */
 @Mixin(CreativeInventoryScreen.class)
 public class DropBlockCreativeScreenMixin {
-	@Inject(method = "onMouseClick(Lnet/minecraft/screen/slot/Slot;IIILnet/minecraft/screen/slot/SlotActionType;)V",
+	// 注意：不能写成 yarn 名+描述符——onMouseClick 在本类有两个重载，构建时 Mixin 注解处理器
+	// 无法消歧会跳过重映射，运行时将找不到目标。这里直接写 intermediary 全限定串（仅用于 1.21.11 运行时）。
+	@Inject(method = "method_2383(Lnet/minecraft/class_1735;IIILnet/minecraft/class_1713;)V",
 			at = @At("HEAD"), cancellable = true)
 	private void satella$blockThrow(Slot slot, int slotId, int button, SlotActionType actionType, CallbackInfo ci) {
 		if (actionType != SlotActionType.THROW || DropBlock.suppressInternal) {
