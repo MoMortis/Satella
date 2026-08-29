@@ -91,10 +91,22 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
     }
 
     private void tickBetterCrossbow(MinecraftClient client) {
-        if (client.player == null || client.world == null || client.currentScreen != null
+        if (client.player == null || client.world == null
                 || !AutoTradeConfigs.Trade.BETTER_CROSSBOW.getBooleanValue()
                 || !physicalUseKeyDown || !isHoldingCrossbow(client)) {
             resetBetterCrossbow(client);
+            return;
+        }
+
+        // 背包/其他容器界面打开、或 litematica-printer 快捷潜影盒-自动补货进行中时，
+        // 立即暂停连射：松开模拟的使用键并清零计数，恢复后从激活步骤重新开始
+        // （先按住使用键，再进入周期射击），避免补货期间射击导致补货失败
+        if (client.currentScreen != null || PrinterRestockPause.isRestockInProgress()) {
+            if (betterCrossbowActive) {
+                setUseKey(client, false);
+            }
+            betterCrossbowActive = false;
+            betterCrossbowCounter = 0;
             return;
         }
 
