@@ -23,7 +23,7 @@ public final class GlintRenderLayer {
         for (GlintPreset preset : GlintPreset.values()) {
             GLINT.put(preset, build("glint_" + preset.getStringValue(), preset, RenderPipelines.GLINT,
                     TextureTransform.GLINT_TEXTURING, null));
-            ENTITY_GLINT.put(preset, build("entity_glint_" + preset.getStringValue(), preset, RenderPipelines.ENTITY_TRANSLUCENT,
+            ENTITY_GLINT.put(preset, build("entity_glint_" + preset.getStringValue(), preset, RenderPipelines.GLINT,
                     TextureTransform.ENTITY_GLINT_TEXTURING, null));
             TRANSLUCENT.put(preset, build("glint_translucent_" + preset.getStringValue(), preset, RenderPipelines.GLINT,
                     TextureTransform.GLINT_TEXTURING, net.minecraft.client.render.OutputTarget.ITEM_ENTITY_TARGET));
