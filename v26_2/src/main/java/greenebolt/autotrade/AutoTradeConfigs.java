@@ -36,6 +36,8 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ConfigBoolean DROP_OUTPUTS = new ConfigBoolean("交易后丢弃输出物品", false, "将交易结果丢弃到地面");
         public static final ConfigHotkey TOGGLE_KEY = new ConfigHotkey("自动交易开关键", "", KeybindSettings.DEFAULT, "开关自动交易");
         public static final ConfigHotkey MODE_KEY = new ConfigHotkey("切换交易模式键", "", KeybindSettings.DEFAULT, "切换交易模式");
+        public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger("合成残余", 0, 0, 16,
+                "残差合成补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆（单位：个）");
         public static final ConfigBoolean RESIDUAL_CRAFTING = new ConfigBoolean("残差合成", false,
                 "Ctrl+Alt+C 合成时保留每个背包材料堆叠中的一个物品");
         public static final ConfigBoolean AUTO_CRAFTING = new ConfigBoolean("全自动合成", false,
@@ -53,7 +55,8 @@ public final class AutoTradeConfigs implements IConfigHandler {
                         + "例：0-4096:123456 与 4097-999999:654321:tectonic-datapack-3.0.18|Dungeons and Taverns v5.1.0\n"
                         + "未命中任何环时，使用 /st seed 设置的全局种子且不加载任何数据包 zip");
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION,
-                INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, RESIDUAL_CRAFTING,
+                INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, CRAFT_RESIDUE,
+                RESIDUAL_CRAFTING,
                 AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, ST_RULES);
     }
 

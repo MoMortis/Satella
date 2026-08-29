@@ -188,15 +188,20 @@ public abstract class KeybindCallbacksMixin {
                 }
             }
 
-            int rotation = 0;
-            for (int source = 0; source < handler.slots.size(); source++) {
-                if (source >= first && source <= last) {
-                    continue;
-                }
-                ItemStack sourceStack = handler.getSlot(source).getStack();
-                if (sourceStack.isEmpty() || !ItemStack.areItemsAndComponentsEqual(sourceStack, ingredient)) {
-                    continue;
-                }
+        int rotation = 0;
+        int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
+        for (int source = 0; source < handler.slots.size(); source++) {
+            if (source >= first && source <= last) {
+                continue;
+            }
+            ItemStack sourceStack = handler.getSlot(source).getStack();
+            if (sourceStack.isEmpty() || !ItemStack.areItemsAndComponentsEqual(sourceStack, ingredient)) {
+                continue;
+            }
+            // 合成残余：0.5*P < reserve 时整堆跳过，继续遍历下一个
+            if (sourceStack.getCount() < 2 * reserve) {
+                continue;
+            }
 
                 int half = (sourceStack.getCount() + 1) / 2;
                 int target = -1;

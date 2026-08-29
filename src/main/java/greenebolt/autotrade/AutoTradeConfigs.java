@@ -82,6 +82,10 @@ public class AutoTradeConfigs implements IConfigHandler {
                 "服务器快捷潜影盒兼容", false,
                 "让 Item Scroller、Inventory Profiles Next 和 Tweakeroo 忽略指定潜影盒组件，配置文件位于 config/satella/ignored-components.txt");
 
+        public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger(
+                "合成残余", 0, 0, 16,
+                "残差合成补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆\n单位：个");
+
         public static final ConfigBoolean RESIDUAL_CRAFTING = new ConfigBoolean(
                 "残差合成", false,
                 "修改 Item Scroller 的快速合成：搬运材料时，背包中每个同材料堆叠都会保留 1 个\n开启后会强制 Item Scroller 使用 fallback 合成逻辑");
@@ -108,7 +112,7 @@ public class AutoTradeConfigs implements IConfigHandler {
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(
                 ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION, INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM,
                 DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, BETTER_CROSSBOW, BETTER_CROSSBOW_INTERVAL, SERVER_SHULKER_COMPAT,
-                RESIDUAL_CRAFTING, AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, ST_RULES);
+                CRAFT_RESIDUE, RESIDUAL_CRAFTING, AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, ST_RULES);
     }
 
     public static void register() {
