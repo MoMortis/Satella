@@ -14,6 +14,7 @@ import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.registry.RegistryEntryLookup;
 import net.minecraft.block.Block;
 import net.minecraft.registry.tag.TagGroupLoader;
+import net.minecraft.resource.DataConfiguration;
 import net.minecraft.resource.FileResourcePackProvider;
 import net.minecraft.resource.LifecycledResourceManager;
 import net.minecraft.resource.ResourceManager;
@@ -21,6 +22,7 @@ import net.minecraft.resource.ResourcePackManager;
 import net.minecraft.resource.ResourcePackSource;
 import net.minecraft.resource.ResourceType;
 import net.minecraft.resource.VanillaDataPackProvider;
+import net.minecraft.server.SaveLoading;
 import net.minecraft.structure.StructureTemplateManager;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.path.SymlinkFinder;
@@ -93,22 +95,13 @@ public final class DatapackWorldgen implements AutoCloseable {
                                         List<String> rulePacks) throws Exception {
         LifecycledResourceManager resourceManager = null;
         try {
-            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包；
-            // file/ 前缀的包（数据包目录 zip）按规则选择，其余（原版与模组内置）始终启用
+            // 原版 + config/satella/datapacks + （fabric resource-loader 注入的）模组内置数据包
             ResourcePackManager packManager = new ResourcePackManager(
                 new VanillaDataPackProvider(symlinkFinder),
                 new FileResourcePackProvider(packsDir, ResourceType.SERVER_DATA, ResourcePackSource.WORLD, symlinkFinder));
-            packManager.scanPacks();
-            java.util.Set<String> enabled = new java.util.LinkedHashSet<>();
-            for (net.minecraft.resource.ResourcePackProfile profile : packManager.getProfiles()) {
-                String id = profile.getId();
-                if (!id.startsWith("file/") || rulePacks == null || matchesRulePack(id, rulePacks)) {
-                    enabled.add(id);
-                }
-            }
-            packManager.setEnabledProfiles(enabled);
-            resourceManager = new net.minecraft.resource.LifecycledResourceManagerImpl(
-                ResourceType.SERVER_DATA, packManager.createResourcePacks());
+            Pair<DataConfiguration, LifecycledResourceManager> loaded =
+                new SaveLoading.DataPacks(packManager, DataConfiguration.SAFE_MODE, false, false).load();
+            resourceManager = loaded.getSecond();
 
             CombinedDynamicRegistries<ServerDynamicRegistryType> combined = ServerDynamicRegistryType.createCombinedDynamicRegistries();
             List<Registry.PendingTagLoad<?>> pendingTags = TagGroupLoader.startReload(
@@ -187,21 +180,6 @@ public final class DatapackWorldgen implements AutoCloseable {
             }
         }
         throw new IllegalStateException("Missing static registry: " + key.getValue());
-    }
-
-    /** file/<name>.zip 形式的 profile id 是否命中规则里配置的数据包名 */
-    private static boolean matchesRulePack(String profileId, List<String> rulePacks) {
-        String name = profileId.substring("file/".length());
-        if (name.endsWith(".zip")) {
-            name = name.substring(0, name.length() - 4);
-        }
-        for (String pack : rulePacks) {
-            String p = pack.endsWith(".zip") ? pack.substring(0, pack.length() - 4) : pack;
-            if (p.equalsIgnoreCase(name)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static DimensionOptions pickNoiseDimension(DynamicRegistryManager.Immutable dynamic, DynamicRegistryManager.Immutable dimensions) {
