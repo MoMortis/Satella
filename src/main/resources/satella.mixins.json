@@ -9,6 +9,9 @@
 		"MerchantMixin",
 		"EntityGlowMixin",
 		"InteractionMixin",
+		"DropBlockPlayerMixin",
+		"DropBlockClickSlotMixin",
+		"DropBlockCreativeScreenMixin",
 		"ScreenOpenMixin"
 		,"GlintItemRendererMixin"
 		,"GlintEquipmentRendererMixin"

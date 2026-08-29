@@ -22,7 +22,12 @@ public final class ResidualCrafting {
         for (int iteration = 0; iteration < iterations; iteration++) {
             if (!prepare(menu, minecraft, firstGridSlot, lastGridSlot, ingredients)) return crafted;
             if (!ItemStack.isSameItemSameComponents(menu.getSlot(0).getItem(), result)) return crafted;
-            click(minecraft, menu, 0, 1, ContainerInput.THROW);
+            DropBlock.suppressInternal = true;
+            try {
+                click(minecraft, menu, 0, 1, ContainerInput.THROW);
+            } finally {
+                DropBlock.suppressInternal = false;
+            }
             crafted = true;
         }
         return crafted;

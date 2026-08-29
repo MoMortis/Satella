@@ -47,6 +47,10 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ConfigOptionList ENCHANTMENT_COLOR = new ConfigOptionList("附魔显示颜色", GlintPreset.WHITE,
                 "点击切换预设附魔光效颜色");
 
+        public static final ConfigStringList DROP_BLOCK_ITEMS = new ConfigStringList("拦截目标物品丢弃", ImmutableList.of(),
+                "列表内的物品无法被丢弃：手持 Q / Ctrl+Q、容器内按 Q / Ctrl+Q、光标移出界面丢弃等全部拦截\n"
+                        + "支持物品显示名、物品 id（如 minecraft:diamond）或省略 minecraft: 的 id（如 diamond）");
+
         public static final ConfigStringList ST_RULES = new ConfigStringList(
                 "多环定位规则", ImmutableList.of(),
                 "用 /st rules 指令打开编辑器配置。每条格式：最小距离-最大距离:种子[:数据包1|数据包2]\n"
@@ -57,7 +61,7 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION,
                 INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, CRAFT_RESIDUE,
                 RESIDUAL_CRAFTING,
-                AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, ST_RULES);
+                AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, DROP_BLOCK_ITEMS, ST_RULES);
     }
 
     public static void register() {
