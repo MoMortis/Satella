@@ -2,9 +2,7 @@ package greenebolt.autotrade.mixin;
 
 import greenebolt.autotrade.DropBlock;
 import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
-import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.item.ItemStack;
-import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
 import org.spongepowered.asm.mixin.Mixin;
@@ -23,14 +21,11 @@ public class DropBlockCreativeScreenMixin {
 		if (actionType != SlotActionType.THROW || DropBlock.suppressInternal) {
 			return;
 		}
-		ItemStack stack;
-		if (slot != null && slot.hasStack()) {
-			stack = slot.getStack();
-		} else {
-			// handler 字段在父类 HandledScreen 上，直接用 getter，避免 @Shadow 解析不到
-			ScreenHandler handler = ((HandledScreen<?>) (Object) this).getScreenHandler();
-			stack = handler.getCursorStack();
+		// 仅拦截丢具体槽位（创造界面内按 Q 等）；slot == null 是光标移出界面丢光标物品，放行
+		if (slot == null) {
+			return;
 		}
+		ItemStack stack = slot.getStack();
 		if (!stack.isEmpty() && DropBlock.isBlockedItem(stack.getItem())) {
 			ci.cancel();
 		}

@@ -5,7 +5,7 @@ import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
-/** 拦截目标物品丢弃：手持 Q / Ctrl+Q、容器内 Q / Ctrl+Q、光标移出界面丢弃等 */
+/** 拦截目标物品丢弃：仅保留“光标移出界面丢弃”一种方式，手持 Q / Ctrl+Q、容器内 Q / Ctrl+Q 等全部拦截 */
 public final class DropBlock {
     private DropBlock() {}
 
@@ -30,13 +30,12 @@ public final class DropBlock {
         if (suppressInternal || input != ContainerInput.THROW) {
             return false;
         }
-        ItemStack stack;
-        if (slotId >= 0 && slotId < menu.slots.size()) {
-            stack = menu.getSlot(slotId).getItem();
-        } else {
-            // slotId 为 -999（光标移出界面点击）等负值时丢弃的是光标上的物品
-            stack = menu.getCarried();
+        // slotId 为 -999 表示光标移出界面丢弃光标上的物品，这是唯一放行的丢弃方式；
+        // 其余 THROW（背包/容器内按 Q、Ctrl+Q 等）落在具体槽位上，全部拦截
+        if (slotId < 0 || slotId >= menu.slots.size()) {
+            return false;
         }
+        ItemStack stack = menu.getSlot(slotId).getItem();
         return !stack.isEmpty() && isBlockedItem(stack.getItem());
     }
 }
