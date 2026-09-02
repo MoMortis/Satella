@@ -13,7 +13,6 @@
     "MinecraftMixin",
     "EntityGlowMixin",
     "EquipmentLayerRendererMixin",
-    "itemscroller.KeybindCallbacksMixin",
     "GlintItemFeatureRendererMixin",
     "RenderTypeInvoker"
   ],

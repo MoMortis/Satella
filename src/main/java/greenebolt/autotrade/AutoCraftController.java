@@ -21,17 +21,10 @@ public final class AutoCraftController {
     private AutoCraftController() {}
 
     public static boolean isActive() {
-        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue()
-                && AutoTradeConfigs.Trade.RESIDUAL_CRAFTING.getBooleanValue();
+        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
     }
 
     public static void toggle() {
-        if (!AutoTradeConfigs.Trade.RESIDUAL_CRAFTING.getBooleanValue()) {
-            AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(false);
-            InfoUtils.sendVanillaMessage(Text.literal("全自动合成需要先开启残差合成").formatted(Formatting.RED));
-            return;
-        }
-
         boolean enabled = !AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
         AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(enabled);
         if (!enabled) {
@@ -53,7 +46,7 @@ public final class AutoCraftController {
         InfoUtils.sendVanillaMessage(Text.literal("全自动合成中...").formatted(Formatting.GREEN));
 
         if (mc.player.currentScreenHandler instanceof CraftingScreenHandler handler) {
-            if (++craftTicker >= autoTrade$getMassCraftInterval()) {
+            if (++craftTicker >= AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue()) {
                 craftTicker = 0;
                 autoTrade$craftHidden(handler, mc);
             }
@@ -74,15 +67,7 @@ public final class AutoCraftController {
         openCooldown = 10;
     }
 
-    private static int autoTrade$getMassCraftInterval() {
-        try {
-            Class<?> generic = Class.forName("fi.dy.masa.itemscroller.config.Configs$Generic");
-            Object config = generic.getField("MASS_CRAFT_INTERVAL").get(null);
-            return Math.max(1, (int) config.getClass().getMethod("getIntegerValue").invoke(config));
-        } catch (ReflectiveOperationException e) {
-            return 2;
-        }
-    }
+        return AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue();
 
     private static BlockPos autoTrade$findCraftingTable(MinecraftClient mc) {
         BlockPos center = mc.player.getBlockPos();

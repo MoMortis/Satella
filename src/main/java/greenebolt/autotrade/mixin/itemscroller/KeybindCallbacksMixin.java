@@ -4,7 +4,6 @@ import greenebolt.autotrade.AutoTrade;
 import greenebolt.autotrade.AutoTradeConfigs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
@@ -19,66 +18,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-/** Replaces Item Scroller's mass-craft paths while residual crafting is enabled. */
+/** Provides the crafting helper used by Satella's automatic crafting controller. */
 @Mixin(targets = "fi.dy.masa.itemscroller.event.KeybindCallbacks", remap = false)
 public abstract class KeybindCallbacksMixin {
-    @Shadow protected int massCraftTicker;
-
-    @Inject(method = "onClientTickMassCraftImpl", at = @At("HEAD"), cancellable = true, remap = false)
-    private void autoTrade$residualMassCraft(MinecraftClient mc, CallbackInfo ci) {
-        if (!AutoTradeConfigs.Trade.RESIDUAL_CRAFTING.getBooleanValue()) {
-            return;
-        }
-
-        // Do not allow Item Scroller's recipe-book, swaps, or fallback paths to run.
-        ci.cancel();
-
-        if (mc.player == null || mc.interactionManager == null
-                || !(mc.currentScreen instanceof HandledScreen<?> gui)
-                || !autoTrade$isMassCraftKeysDown(mc)) {
-            return;
-        }
-
         try {
-            int interval = autoTrade$getItemScrollerInteger("MASS_CRAFT_INTERVAL");
-            if (++this.massCraftTicker < interval) {
-                return;
-            }
-            this.massCraftTicker = 0;
-            autoTrade$craftOnce(gui, mc, autoTrade$getItemScrollerInteger("MASS_CRAFT_ITERATIONS"));
-        } catch (ReflectiveOperationException | ClassCastException e) {
-            AutoTrade.LOGGER.warn("Residual mass crafting failed", e);
-        }
-    }
-
-    private static void autoTrade$craftOnce(HandledScreen<?> gui, MinecraftClient mc, int iterations)
-            throws ReflectiveOperationException {
-        ScreenHandler handler = gui.getScreenHandler();
-        Slot output = (Slot) autoTrade$callStatic(
-                "fi.dy.masa.itemscroller.recipes.CraftingHandler",
-                "getFirstCraftingOutputSlotForGui", gui);
-        if (output == null) {
-            return;
-        }
-
-        Object range = autoTrade$callStatic(
-                "fi.dy.masa.itemscroller.recipes.CraftingHandler",
-                "getCraftingGridSlots", gui, output);
-        if (range == null) {
-            return;
-        }
-
-        int first = (int) autoTrade$call(range, "getFirst");
-        int last = (int) autoTrade$call(range, "getLast");
-        autoTrade$craftHandler(handler, output, first, last, mc, iterations);
-    }
-
-    /** Runs the residual recipe against the hidden vanilla crafting-table handler. */
-    private static void autoTrade$craftHidden(net.minecraft.screen.CraftingScreenHandler handler,
-                                              MinecraftClient mc) {
-        try {
-            autoTrade$craftHandler(handler, handler.getSlot(0), 1, 9, mc,
-                    autoTrade$getItemScrollerInteger("MASS_CRAFT_ITERATIONS"));
+                autoTrade$craftHandler(handler, handler.getSlot(0), 1, 9, mc, 1);
         } catch (ReflectiveOperationException | ClassCastException e) {
             AutoTrade.LOGGER.warn("Automatic residual crafting failed", e);
         }

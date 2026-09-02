@@ -20,15 +20,10 @@ public final class AutoCraftController {
     private AutoCraftController() {}
 
     public static boolean isActive() {
-        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue() && AutoTradeConfigs.Trade.RESIDUAL_CRAFTING.getBooleanValue();
+        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
     }
 
     public static void toggle() {
-        if (!AutoTradeConfigs.Trade.RESIDUAL_CRAFTING.getBooleanValue()) {
-            AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(false);
-            InfoUtils.sendVanillaMessage(Component.literal("全自动合成需要先开启残差合成").withStyle(ChatFormatting.RED));
-            return;
-        }
         boolean enabled = !AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
         AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(enabled);
         if (!enabled) close(Minecraft.getInstance());
@@ -44,7 +39,7 @@ public final class AutoCraftController {
             return;
         }
         if (minecraft.player.containerMenu instanceof CraftingMenu menu) {
-            if (++craftCooldown >= 2) {
+            if (++craftCooldown >= AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue()) {
                 craftCooldown = 0;
                 ResidualCrafting.craft(menu, minecraft, 1, 9, 1);
             }

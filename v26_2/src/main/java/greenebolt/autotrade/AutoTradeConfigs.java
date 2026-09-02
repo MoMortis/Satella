@@ -38,10 +38,10 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ConfigHotkey MODE_KEY = new ConfigHotkey("切换交易模式键", "", KeybindSettings.DEFAULT, "切换交易模式");
         public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger("合成残余", 0, 0, 16,
                 "残差合成补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆（单位：个）");
-        public static final ConfigBoolean RESIDUAL_CRAFTING = new ConfigBoolean("残差合成", false,
-                "Ctrl+Alt+C 合成时保留每个背包材料堆叠中的一个物品");
+        public static final ConfigInteger AUTO_CRAFTING_INTERVAL = new ConfigInteger("全自动合成周期", 2, 1, 100000,
+                "全自动合成每隔多少游戏刻执行一次合成，与 Item Scroller 配置无关");
         public static final ConfigBoolean AUTO_CRAFTING = new ConfigBoolean("全自动合成", false,
-                "需要残差合成。自动使用附近工作台，并隐藏界面持续合成当前 Item Scroller 配方");
+                "自动寻找附近工作台，隐藏界面并持续按当前 Item Scroller 配方合成");
         public static final ConfigHotkey AUTO_CRAFTING_KEY = new ConfigHotkey("全自动合成开关键", "", KeybindSettings.DEFAULT,
                 "开关全自动合成");
         public static final ConfigOptionList ENCHANTMENT_COLOR = new ConfigOptionList("附魔显示颜色", GlintPreset.WHITE,
@@ -60,8 +60,7 @@ public final class AutoTradeConfigs implements IConfigHandler {
                         + "未命中任何环时，使用 /st seed 设置的全局种子且不加载任何数据包 zip");
         public static final ImmutableList<IConfigBase> OPTIONS = ImmutableList.of(ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION,
                 INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY, CRAFT_RESIDUE,
-                RESIDUAL_CRAFTING,
-                AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, DROP_BLOCK_ITEMS, ST_RULES);
+                AUTO_CRAFTING_INTERVAL, AUTO_CRAFTING, AUTO_CRAFTING_KEY, ENCHANTMENT_COLOR, DROP_BLOCK_ITEMS, ST_RULES);
     }
 
     public static void register() {

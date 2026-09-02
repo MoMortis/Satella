@@ -16,7 +16,6 @@
 		,"GlintItemRendererMixin"
 		,"GlintEquipmentRendererMixin"
 		,"GlintBufferBuilderStorageMixin"
-		,"itemscroller.KeybindCallbacksMixin"
 		,"itemscroller.InventoryUtilsMixin"
 		,"ipn.ItemTypeMixin"
 		,"tweakeroo.InventoryUtilsMixin"
