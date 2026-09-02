@@ -173,7 +173,7 @@ public abstract class KeybindCallbacksMixin {
 
     /** Scans the inventory once with one shared cursor for every recipe ingredient. */
     private static boolean autoTrade$fillMissingRecipeSlots(ScreenHandler handler, int first, int last,
-                                                              ItemStack[] ingredients, MinecraftClient mc) {
+                                                            ItemStack[] ingredients, MinecraftClient mc) {
         autoTrade$prepareScanState(handler, ingredients);
         if (autoTrade$gridMatchesRecipe(handler, first, last, ingredients)) {
             return true;
@@ -183,6 +183,15 @@ public abstract class KeybindCallbacksMixin {
         if (slotCount == 0) {
             return false;
         }
+
+        // 先按目标配方和合成格已有物品建立材料表：true 表示该格还缺这种材料
+        boolean[] needed = new boolean[ingredients.length];
+        for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
+            int slot = first + recipeIndex;
+            needed[recipeIndex] = slot <= last && !ingredients[recipeIndex].isEmpty()
+                    && !ItemStack.areItemsAndComponentsEqual(handler.getSlot(slot).getStack(), ingredients[recipeIndex]);
+        }
+
         int start = (autoTrade$scanCursor + 1 + slotCount) % slotCount;
         boolean moved = false;
         for (int offset = 0; offset < slotCount; offset++) {
@@ -196,17 +205,34 @@ public abstract class KeybindCallbacksMixin {
             if (sourceStack.isEmpty()) {
                 continue;
             }
-            int half = (sourceStack.getCount() + 1) / 2;
-            int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
-            if (sourceStack.getCount() < 2 * reserve) {
+            int residue = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
+            if (sourceStack.getCount() < 2 * residue) {
                 continue;
             }
 
-            boolean placed = false;
+            // 查材料表：这种物品是否还有缺口
+            boolean neededHere = false;
             for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
-                ItemStack expected = ingredients[recipeIndex];
-                if (expected.isEmpty()
-                        || !ItemStack.areItemsAndComponentsEqual(sourceStack, expected)) {
+                if (needed[recipeIndex] && ItemStack.areItemsAndComponentsEqual(sourceStack, ingredients[recipeIndex])) {
+                    neededHere = true;
+                    break;
+                }
+            }
+            if (!neededHere) {
+                continue;
+            }
+
+            // 右键拾起半堆到光标；拾起成功即视为取到了材料
+            autoTrade$click(handler, source, 1, SlotActionType.PICKUP, mc);
+            if (handler.getCursorStack().isEmpty()) {
+                continue;
+            }
+
+            // 先按材料表核销缺口，再把光标物品放进对应的合成格
+            boolean placed = false;
+            for (int recipeIndex = 0; recipeIndex < ingredients.length && !handler.getCursorStack().isEmpty(); recipeIndex++) {
+                if (!needed[recipeIndex]
+                        || !ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), ingredients[recipeIndex])) {
                     continue;
                 }
                 int target = first + recipeIndex;
@@ -214,32 +240,31 @@ public abstract class KeybindCallbacksMixin {
                     continue;
                 }
                 ItemStack gridStack = handler.getSlot(target).getStack();
-                if (!gridStack.isEmpty()
-                        && !ItemStack.areItemsAndComponentsEqual(gridStack, expected)) {
+                if (!gridStack.isEmpty() && !ItemStack.areItemsAndComponentsEqual(gridStack, ingredients[recipeIndex])) {
                     continue;
                 }
-                if (gridStack.getCount() + half > expected.getMaxCount()) {
+                if (gridStack.getCount() >= ingredients[recipeIndex].getMaxCount()) {
                     continue;
                 }
-
-                autoTrade$click(handler, source, 1, SlotActionType.PICKUP, mc);
-                if (!ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), expected)) {
-                    autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
-                    continue;
-                }
+                needed[recipeIndex] = false;
                 autoTrade$click(handler, target, 0, SlotActionType.PICKUP, mc);
+                moved = true;
+                placed = true;
+            }
+
+            if (placed) {
+                // 光标还有剩余：先放回来源槽，再回背包，背包放不下才丢弃
                 if (!handler.getCursorStack().isEmpty()) {
                     autoTrade$click(handler, source, 0, SlotActionType.PICKUP, mc);
                 }
                 if (!handler.getCursorStack().isEmpty()) {
                     autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
                 }
-                moved = true;
-                placed = true;
-                break;
-            }
-            if (placed && autoTrade$gridMatchesRecipe(handler, first, last, ingredients)) {
-                return true;
+                if (autoTrade$gridMatchesRecipe(handler, first, last, ingredients)) {
+                    return true;
+                }
+            } else {
+                autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
             }
         }
         return moved;

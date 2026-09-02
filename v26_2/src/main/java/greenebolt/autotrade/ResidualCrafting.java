@@ -161,6 +161,15 @@ public final class ResidualCrafting {
         if (slotCount == 0) {
             return;
         }
+
+        // 先按目标配方和合成格已有物品建立材料表：true 表示该格还缺这种材料
+        boolean[] needed = new boolean[ingredients.length];
+        for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
+            int slot = first + recipeIndex;
+            needed[recipeIndex] = slot <= last && !ingredients[recipeIndex].isEmpty()
+                    && !ItemStack.isSameItemSameComponents(menu.getSlot(slot).getItem(), ingredients[recipeIndex]);
+        }
+
         int start = (scanCursor + 1 + slotCount) % slotCount;
         for (int offset = 0; offset < slotCount; offset++) {
             int source = (start + offset) % slotCount;
@@ -173,17 +182,34 @@ public final class ResidualCrafting {
             if (sourceStack.isEmpty()) {
                 continue;
             }
-            int half = (sourceStack.getCount() + 1) / 2;
-            int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
-            if (sourceStack.getCount() < 2 * reserve) {
+            int residue = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
+            if (sourceStack.getCount() < 2 * residue) {
                 continue;
             }
 
-            boolean placed = false;
+            // 查材料表：这种物品是否还有缺口
+            boolean neededHere = false;
             for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
-                ItemStack expected = ingredients[recipeIndex];
-                if (expected.isEmpty()
-                        || !ItemStack.isSameItemSameComponents(sourceStack, expected)) {
+                if (needed[recipeIndex] && ItemStack.isSameItemSameComponents(sourceStack, ingredients[recipeIndex])) {
+                    neededHere = true;
+                    break;
+                }
+            }
+            if (!neededHere) {
+                continue;
+            }
+
+            // 右键拾起半堆到光标；拾起成功即视为取到了材料
+            click(minecraft, menu, source, 1, ContainerInput.PICKUP);
+            if (menu.getCarried().isEmpty()) {
+                continue;
+            }
+
+            // 先按材料表核销缺口，再把光标物品放进对应的合成格
+            boolean placed = false;
+            for (int recipeIndex = 0; recipeIndex < ingredients.length && !menu.getCarried().isEmpty(); recipeIndex++) {
+                if (!needed[recipeIndex]
+                        || !ItemStack.isSameItemSameComponents(menu.getCarried(), ingredients[recipeIndex])) {
                     continue;
                 }
                 int target = first + recipeIndex;
@@ -191,31 +217,30 @@ public final class ResidualCrafting {
                     continue;
                 }
                 ItemStack gridStack = menu.getSlot(target).getItem();
-                if (!gridStack.isEmpty()
-                        && !ItemStack.isSameItemSameComponents(gridStack, expected)) {
+                if (!gridStack.isEmpty() && !ItemStack.isSameItemSameComponents(gridStack, ingredients[recipeIndex])) {
                     continue;
                 }
-                if (gridStack.getCount() + half > expected.getMaxStackSize()) {
+                if (gridStack.getCount() >= ingredients[recipeIndex].getMaxStackSize()) {
                     continue;
                 }
-
-                click(minecraft, menu, source, 1, ContainerInput.PICKUP);
-                if (!ItemStack.isSameItemSameComponents(menu.getCarried(), expected)) {
-                    returnCursorToInventoryOrDrop(menu, first, last, minecraft);
-                    continue;
-                }
+                needed[recipeIndex] = false;
                 click(minecraft, menu, target, 0, ContainerInput.PICKUP);
+                placed = true;
+            }
+
+            if (placed) {
+                // 光标还有剩余：先放回来源槽，再回背包，背包放不下才丢弃
                 if (!menu.getCarried().isEmpty()) {
                     click(minecraft, menu, source, 0, ContainerInput.PICKUP);
                 }
                 if (!menu.getCarried().isEmpty()) {
                     returnCursorToInventoryOrDrop(menu, first, last, minecraft);
                 }
-                placed = true;
-                break;
-            }
-            if (placed && gridMatchesRecipe(menu, first, last, ingredients)) {
-                return;
+                if (gridMatchesRecipe(menu, first, last, ingredients)) {
+                    return;
+                }
+            } else {
+                returnCursorToInventoryOrDrop(menu, first, last, minecraft);
             }
         }
     }

@@ -21,9 +21,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ScreenOpenMixin {
 	@Inject(method = "onOpenScreen(Lnet/minecraft/network/packet/s2c/play/OpenScreenS2CPacket;)V", at = @At("HEAD"), cancellable = true)
 	private void onOpenScreen(OpenScreenS2CPacket packet, CallbackInfo ci) {
+		// “GUI显示”开启时不拦截，工作台/切石机界面正常渲染；自动交易始终隐藏村民界面
+		boolean hideAutomationGui = !AutoTradeConfigs.Trade.GUI_DISPLAY.getBooleanValue();
 		boolean hiddenMerchant = AutoTradeConfigs.isEnabled() && packet.getScreenHandlerType() == ScreenHandlerType.MERCHANT;
-		boolean hiddenCrafting = AutoCraftController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.CRAFTING;
-		boolean hiddenStonecutting = AutoStonecutController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.STONECUTTER;
+		boolean hiddenCrafting = hideAutomationGui && AutoCraftController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.CRAFTING;
+		boolean hiddenStonecutting = hideAutomationGui && AutoStonecutController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.STONECUTTER;
 		if (!hiddenMerchant && !hiddenCrafting && !hiddenStonecutting) {
 			return;
 		}

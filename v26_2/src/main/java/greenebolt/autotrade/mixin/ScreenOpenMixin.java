@@ -16,9 +16,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ScreenOpenMixin {
     @Inject(method = "handleOpenScreen", at = @At("HEAD"), cancellable = true, remap = false)
     private void autoTrade$hideMerchant(ClientboundOpenScreenPacket packet, CallbackInfo ci) {
+        // “GUI显示”开启时不拦截，工作台/切石机界面正常渲染；自动交易始终隐藏村民界面
+        boolean hideAutomationGui = !AutoTradeConfigs.Trade.GUI_DISPLAY.getBooleanValue();
         boolean merchant = AutoTradeConfigs.isEnabled() && packet.getType() == MenuType.MERCHANT;
-        boolean crafting = AutoCraftController.isActive() && packet.getType() == MenuType.CRAFTING;
-        boolean stonecutting = AutoStonecutController.isActive() && packet.getType() == MenuType.STONECUTTER;
+        boolean crafting = hideAutomationGui && AutoCraftController.isActive() && packet.getType() == MenuType.CRAFTING;
+        boolean stonecutting = hideAutomationGui && AutoStonecutController.isActive() && packet.getType() == MenuType.STONECUTTER;
         if (!merchant && !crafting && !stonecutting) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) return;

@@ -13,6 +13,7 @@ import fi.dy.masa.malilib.config.options.ConfigInteger;
 import fi.dy.masa.malilib.config.options.ConfigOptionList;
 import fi.dy.masa.malilib.config.options.ConfigString;
 import fi.dy.masa.malilib.config.options.ConfigStringList;
+import fi.dy.masa.malilib.hotkeys.KeyAction;
 import fi.dy.masa.malilib.hotkeys.KeybindSettings;
 import fi.dy.masa.malilib.util.FileUtils;
 import fi.dy.masa.malilib.util.data.json.JsonUtils;
@@ -24,6 +25,10 @@ public final class AutoTradeConfigs implements IConfigHandler {
     public static final String MOD_ID = "satella";
     private static final AutoTradeConfigs INSTANCE = new AutoTradeConfigs();
     private static Path path;
+
+    /** 让热键在游戏内和打开的界面中都能触发 */
+    private static final KeybindSettings KEYBIND_ANY_CONTEXT = KeybindSettings.create(
+            KeybindSettings.Context.ANY, KeyAction.PRESS, false, true, false, true);
 
     public static final class Trade {
         public static final ConfigBoolean ENABLED = new ConfigBoolean("启用自动交易", false, "启用自动交易");
@@ -44,10 +49,12 @@ public final class AutoTradeConfigs implements IConfigHandler {
                 "总开关。开启后自动寻找附近的工作台/切石机，隐藏界面并按自动化模式持续执行");
         public static final ConfigOptionList AUTOMATION_MODE = new ConfigOptionList("自动化模式", AutomationMode.CRAFTING,
                 "合成：按当前 Item Scroller 配方自动合成\n切石：把切石输入物品切石成输出物品后丢弃");
-        public static final ConfigHotkey AUTOMATION_KEY = new ConfigHotkey("自动化开关键", "", KeybindSettings.DEFAULT,
-                "按下开启或关闭自动化（默认未绑定）");
-        public static final ConfigHotkey AUTOMATION_MODE_KEY = new ConfigHotkey("自动化模式键", "", KeybindSettings.DEFAULT,
-                "在 合成 与 切石 之间切换自动化模式（默认未绑定），切换后在物品栏上方提示当前模式");
+        public static final ConfigHotkey AUTOMATION_KEY = new ConfigHotkey("自动化开关键", "", KEYBIND_ANY_CONTEXT,
+                "按下开启或关闭自动化（默认未绑定，游戏内和界面中均可触发）");
+        public static final ConfigHotkey AUTOMATION_MODE_KEY = new ConfigHotkey("自动化模式键", "", KEYBIND_ANY_CONTEXT,
+                "在 合成 与 切石 之间切换自动化模式（默认未绑定，游戏内和界面中均可触发），切换后在物品栏上方提示当前模式");
+        public static final ConfigBoolean GUI_DISPLAY = new ConfigBoolean("GUI显示", false,
+                "开启时正常显示工作台/切石机的界面（可随时关闭界面，自动化会重新打开）；关闭时隐藏界面后台执行");
         public static final ConfigString STONECUTTING_INPUT = new ConfigString("切石输入物品", "石头",
                 "放入切石机的物品，支持物品显示名、物品 id（如 minecraft:stone）或省略 minecraft: 的 id（如 stone）");
         public static final ConfigString STONECUTTING_OUTPUT = new ConfigString("切石输出物品", "石砖",
@@ -73,7 +80,7 @@ public final class AutoTradeConfigs implements IConfigHandler {
         /** 配置界面“自动化”分类页 */
         public static final ImmutableList<IConfigBase> AUTOMATION_OPTIONS = ImmutableList.of(AUTOMATION,
                 AUTOMATION_MODE, AUTOMATION_KEY, AUTOMATION_MODE_KEY, AUTOMATION_INTERVAL,
-                CRAFT_RESIDUE, STONECUTTING_INPUT, STONECUTTING_OUTPUT);
+                CRAFT_RESIDUE, STONECUTTING_INPUT, STONECUTTING_OUTPUT, GUI_DISPLAY);
 
         /** 配置界面“杂项”分类页 */
         public static final ImmutableList<IConfigBase> MISC_OPTIONS = ImmutableList.of(ENCHANTMENT_COLOR,
