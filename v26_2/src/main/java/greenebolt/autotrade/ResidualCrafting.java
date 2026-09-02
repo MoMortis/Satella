@@ -22,44 +22,130 @@ public final class ResidualCrafting {
         int limit = Math.max(1, iterations) * 1024;
         for (int iteration = 0; iteration < limit; iteration++) {
             if (!prepare(menu, minecraft, firstGridSlot, lastGridSlot, ingredients)) return crafted;
-            ItemStack outputBefore = menu.getSlot(0).getItem().copy();
-            if (!ItemStack.isSameItemSameComponents(outputBefore, result)) return crafted;
+            ItemStack output = menu.getSlot(0).getItem();
+            if (!ItemStack.isSameItemSameComponents(output, result)) return crafted;
+            ItemStack[] gridBefore = copyGrid(menu, firstGridSlot, lastGridSlot);
+            boolean previousSuppress = DropBlock.suppressInternal;
             DropBlock.suppressInternal = true;
             try {
                 // 与 Item Scroller 的 dropStack 相同：button=1，尽可能取出输出槽中的整组结果。
                 click(minecraft, menu, 0, 1, ContainerInput.THROW);
             } finally {
-                DropBlock.suppressInternal = false;
+                DropBlock.suppressInternal = previousSuppress;
             }
             crafted = true;
-            ItemStack outputAfter = menu.getSlot(0).getItem();
-            // 输出槽没有变化时停止，避免服务器未接受点击导致死循环。
-            if (ItemStack.matches(outputBefore, outputAfter)) return crafted;
+            if (!gridChanged(menu, firstGridSlot, lastGridSlot, gridBefore)) return crafted;
         }
         return crafted;
     }
 
     private static boolean prepare(AbstractContainerMenu menu, Minecraft minecraft, int first, int last, ItemStack[] ingredients) {
-        if (!clearCursor(menu, minecraft, first, last)) return false;
-        for (int index = 0; index < ingredients.length; index++) {
-            int slotId = first + index;
-            ItemStack expected = ingredients[index];
-            Slot slot = menu.getSlot(slotId);
-            ItemStack actual = slot.getItem();
-            if (!actual.isEmpty() && (expected.isEmpty() || !ItemStack.isSameItemSameComponents(actual, expected))) {
-                click(minecraft, menu, slotId, 0, ContainerInput.THROW);
-            }
-        }
+        recoverCursor(menu, first, last, ingredients, minecraft);
+        repairMalformedGrid(menu, first, last, ingredients, minecraft);
+        recoverCursor(menu, first, last, ingredients, minecraft);
         for (int index = 0; index < ingredients.length; index++) {
             ItemStack expected = ingredients[index];
             if (expected.isEmpty() || wasHandled(ingredients, index)) continue;
             if (!fillIngredient(menu, minecraft, first, last, ingredients, expected)) return false;
         }
         balanceGrid(menu, minecraft, first, ingredients);
+        recoverCursor(menu, first, last, ingredients, minecraft);
         for (int index = ingredients.length; first + index <= last; index++) {
-            if (!menu.getSlot(first + index).getItem().isEmpty() && !moveToInventory(menu, minecraft, first + index, first, last)) return false;
+            if (!menu.getSlot(first + index).getItem().isEmpty()) {
+                moveToInventory(menu, minecraft, first + index, first, last);
+            }
         }
-        return menu.getCarried().isEmpty();
+        recoverCursor(menu, first, last, ingredients, minecraft);
+        return menu.getCarried().isEmpty() && gridMatchesRecipe(menu, first, last, ingredients);
+    }
+
+    private static void repairMalformedGrid(AbstractContainerMenu menu, int first, int last,
+                                             ItemStack[] ingredients, Minecraft minecraft) {
+        for (int left = 0; left < ingredients.length && first + left <= last; left++) {
+            int leftSlot = first + left;
+            ItemStack leftStack = menu.getSlot(leftSlot).getItem();
+            if (leftStack.isEmpty() || ItemStack.isSameItemSameComponents(leftStack, ingredients[left])) continue;
+            for (int right = left + 1; right < ingredients.length && first + right <= last; right++) {
+                int rightSlot = first + right;
+                ItemStack rightStack = menu.getSlot(rightSlot).getItem();
+                if (!rightStack.isEmpty()
+                        && ItemStack.isSameItemSameComponents(leftStack, ingredients[right])
+                        && ItemStack.isSameItemSameComponents(rightStack, ingredients[left])) {
+                    click(minecraft, menu, leftSlot, 0, ContainerInput.PICKUP);
+                    click(minecraft, menu, rightSlot, 0, ContainerInput.PICKUP);
+                    click(minecraft, menu, leftSlot, 0, ContainerInput.PICKUP);
+                    break;
+                }
+            }
+        }
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            int sourceSlot = first + index;
+            ItemStack source = menu.getSlot(sourceSlot).getItem();
+            if (source.isEmpty() || ItemStack.isSameItemSameComponents(source, ingredients[index])) continue;
+            for (int targetIndex = 0; targetIndex < ingredients.length; targetIndex++) {
+                int targetSlot = first + targetIndex;
+                if (!ingredients[targetIndex].isEmpty() && menu.getSlot(targetSlot).getItem().isEmpty()
+                        && ItemStack.isSameItemSameComponents(source, ingredients[targetIndex])) {
+                    click(minecraft, menu, sourceSlot, 0, ContainerInput.PICKUP);
+                    click(minecraft, menu, targetSlot, 0, ContainerInput.PICKUP);
+                    recoverCursor(menu, first, last, ingredients, minecraft);
+                    break;
+                }
+            }
+        }
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            int slot = first + index;
+            ItemStack stack = menu.getSlot(slot).getItem();
+            if (!stack.isEmpty() && !ItemStack.isSameItemSameComponents(stack, ingredients[index])) {
+                click(minecraft, menu, slot, 0, ContainerInput.PICKUP);
+                returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+            }
+        }
+    }
+
+    private static boolean gridMatchesRecipe(AbstractContainerMenu menu, int first, int last, ItemStack[] ingredients) {
+        for (int index = 0; index < ingredients.length; index++) {
+            int slot = first + index;
+            if (slot > last) return false;
+            ItemStack expected = ingredients[index];
+            ItemStack actual = menu.getSlot(slot).getItem();
+            if (expected.isEmpty() ? !actual.isEmpty() : !ItemStack.isSameItemSameComponents(actual, expected)) return false;
+        }
+        return true;
+    }
+
+    private static void recoverCursor(AbstractContainerMenu menu, int first, int last,
+                                      ItemStack[] ingredients, Minecraft minecraft) {
+        if (menu.getCarried().isEmpty()) return;
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            if (!ingredients[index].isEmpty() && menu.getSlot(first + index).getItem().isEmpty()
+                    && ItemStack.isSameItemSameComponents(menu.getCarried(), ingredients[index])) {
+                click(minecraft, menu, first + index, 0, ContainerInput.PICKUP);
+                break;
+            }
+        }
+        if (!menu.getCarried().isEmpty()) returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+    }
+
+    private static void returnCursorToInventoryOrDrop(AbstractContainerMenu menu, int first, int last,
+                                                       Minecraft minecraft) {
+        if (menu.getCarried().isEmpty()) return;
+        for (int slot = last + 1; slot < menu.slots.size() && !menu.getCarried().isEmpty(); slot++) {
+            ItemStack target = menu.getSlot(slot).getItem();
+            ItemStack carried = menu.getCarried();
+            if (!target.isEmpty() && (!ItemStack.isSameItemSameComponents(target, carried)
+                    || target.getCount() >= target.getMaxStackSize())) continue;
+            click(minecraft, menu, slot, 0, ContainerInput.PICKUP);
+        }
+        if (!menu.getCarried().isEmpty()) {
+            boolean previous = DropBlock.suppressInternal;
+            DropBlock.suppressInternal = true;
+            try {
+                click(minecraft, menu, -999, 0, ContainerInput.THROW);
+            } finally {
+                DropBlock.suppressInternal = previous;
+            }
+        }
     }
 
     /** One pass over the backpack per prepare. Each matching backpack stack is
@@ -104,12 +190,13 @@ public final class ResidualCrafting {
             // Right-click take half (a 1-count stack is taken whole).
             click(minecraft, menu, source, 1, ContainerInput.PICKUP);
             if (!ItemStack.isSameItemSameComponents(menu.getCarried(), ingredient)) {
-                return clearCursor(menu, minecraft, first, last);
+                returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+                continue;
             }
             // Place the whole half onto the target slot.
             click(minecraft, menu, target, 0, ContainerInput.PICKUP);
             if (!menu.getCarried().isEmpty()) click(minecraft, menu, source, 0, ContainerInput.PICKUP);
-            if (!menu.getCarried().isEmpty()) return clearCursor(menu, minecraft, first, last);
+            if (!menu.getCarried().isEmpty()) returnCursorToInventoryOrDrop(menu, first, last, minecraft);
         }
         return true;
     }
@@ -168,14 +255,27 @@ public final class ResidualCrafting {
 
     private static boolean moveToInventory(AbstractContainerMenu menu, Minecraft minecraft, int source, int first, int last) {
         click(minecraft, menu, source, 0, ContainerInput.PICKUP);
-        return clearCursor(menu, minecraft, first, last);
+        returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+        return menu.getCarried().isEmpty();
     }
 
-    private static boolean clearCursor(AbstractContainerMenu menu, Minecraft minecraft, int first, int last) {
-        if (menu.getCarried().isEmpty()) return true;
-        // 清理光标残留时直接丢出背包；是否允许由“拦截目标物品丢弃”统一决定。
-        click(minecraft, menu, -999, 0, ContainerInput.THROW);
-        return menu.getCarried().isEmpty();
+    private static ItemStack[] copyGrid(AbstractContainerMenu menu, int first, int last) {
+        ItemStack[] grid = new ItemStack[last - first + 1];
+        for (int index = 0; index < grid.length; index++) {
+            grid[index] = menu.getSlot(first + index).getItem().copy();
+        }
+        return grid;
+    }
+
+    private static boolean gridChanged(AbstractContainerMenu menu, int first, int last, ItemStack[] before) {
+        if (before.length != last - first + 1) return true;
+        for (int index = 0; index < before.length; index++) {
+            ItemStack previous = before[index];
+            ItemStack after = menu.getSlot(first + index).getItem();
+            if (!ItemStack.isSameItemSameComponents(previous, after)
+                    || previous.getCount() != after.getCount()) return true;
+        }
+        return false;
     }
 
     private static void click(Minecraft minecraft, AbstractContainerMenu menu, int slot, int button, ContainerInput action) {

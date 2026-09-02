@@ -2,6 +2,7 @@ package greenebolt.autotrade.mixin.itemscroller;
 
 import greenebolt.autotrade.AutoTrade;
 import greenebolt.autotrade.AutoTradeConfigs;
+import greenebolt.autotrade.DropBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.util.InputUtil;
@@ -54,11 +55,9 @@ public abstract class KeybindCallbacksMixin {
                     || !ItemStack.areItemsAndComponentsEqual(output.getStack(), result)) {
                 return;
             }
-            ItemStack outputBefore = output.getStack().copy();
-            autoTrade$click(handler, output.id, 1, SlotActionType.THROW, mc);
-            ItemStack outputAfter = output.getStack();
-            if (ItemStack.areItemsAndComponentsEqual(outputBefore, outputAfter)
-                    && outputBefore.getCount() == outputAfter.getCount()) {
+            ItemStack[] gridBefore = autoTrade$copyGrid(handler, first, last);
+            autoTrade$throwInternal(handler, output.id, 1, mc);
+            if (!autoTrade$gridChanged(handler, first, last, gridBefore)) {
                 return;
             }
         }
@@ -66,35 +65,70 @@ public abstract class KeybindCallbacksMixin {
 
     private static boolean autoTrade$prepareCraftingGrid(ScreenHandler handler, int first, int last,
                                                           ItemStack[] ingredients, MinecraftClient mc) {
-        autoTrade$clearCursor(handler, first, last, mc);
-        autoTrade$removeUnexpectedGridItems(handler, first, last, ingredients, mc);
-        autoTrade$clearCursor(handler, first, last, mc);
-        if (!handler.getCursorStack().isEmpty()) {
-            return false;
-        }
+        autoTrade$recoverCursor(handler, first, last, ingredients, mc);
+        autoTrade$repairMalformedGrid(handler, first, last, ingredients, mc);
+        autoTrade$recoverCursor(handler, first, last, ingredients, mc);
 
         autoTrade$fillMissingRecipeSlots(handler, first, last, ingredients, mc);
         autoTrade$rebalanceCraftingGrid(handler, first, last, ingredients, mc);
-        autoTrade$clearCursor(handler, first, last, mc);
+        autoTrade$recoverCursor(handler, first, last, ingredients, mc);
         return handler.getCursorStack().isEmpty()
                 && autoTrade$gridMatchesRecipe(handler, first, last, ingredients);
     }
 
-    private static void autoTrade$removeUnexpectedGridItems(ScreenHandler handler, int first, int last,
-                                                             ItemStack[] ingredients, MinecraftClient mc) {
-        for (int index = 0; index < ingredients.length; index++) {
-            int slot = first + index;
-            if (slot > last) {
-                return;
+    private static void autoTrade$repairMalformedGrid(ScreenHandler handler, int first, int last,
+                                                       ItemStack[] ingredients, MinecraftClient mc) {
+        // First swap misplaced pairs when both slots become correct after the swap.
+        for (int left = 0; left < ingredients.length && first + left <= last; left++) {
+            int leftSlot = first + left;
+            ItemStack leftStack = handler.getSlot(leftSlot).getStack();
+            if (leftStack.isEmpty() || ItemStack.areItemsAndComponentsEqual(leftStack, ingredients[left])) {
+                continue;
             }
-            ItemStack stack = handler.getSlot(slot).getStack();
-            if (!stack.isEmpty() && (ingredients[index].isEmpty()
-                    || !ItemStack.areItemsAndComponentsEqual(stack, ingredients[index]))) {
-                autoTrade$click(handler, slot, 0, SlotActionType.THROW, mc);
-                autoTrade$clearCursor(handler, first, last, mc);
-                if (!handler.getCursorStack().isEmpty()) {
-                    return;
+            for (int right = left + 1; right < ingredients.length && first + right <= last; right++) {
+                int rightSlot = first + right;
+                ItemStack rightStack = handler.getSlot(rightSlot).getStack();
+                if (!rightStack.isEmpty()
+                        && ItemStack.areItemsAndComponentsEqual(leftStack, ingredients[right])
+                        && ItemStack.areItemsAndComponentsEqual(rightStack, ingredients[left])) {
+                    autoTrade$click(handler, leftSlot, 0, SlotActionType.PICKUP, mc);
+                    autoTrade$click(handler, rightSlot, 0, SlotActionType.PICKUP, mc);
+                    autoTrade$click(handler, leftSlot, 0, SlotActionType.PICKUP, mc);
+                    if (!handler.getCursorStack().isEmpty()) {
+                        autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
+                    }
+                    break;
                 }
+            }
+        }
+
+        // Move misplaced items only into empty slots that expect that item.
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            int sourceSlot = first + index;
+            ItemStack source = handler.getSlot(sourceSlot).getStack();
+            if (source.isEmpty() || ItemStack.areItemsAndComponentsEqual(source, ingredients[index])) {
+                continue;
+            }
+            for (int targetIndex = 0; targetIndex < ingredients.length; targetIndex++) {
+                int targetSlot = first + targetIndex;
+                if (!ingredients[targetIndex].isEmpty()
+                        && handler.getSlot(targetSlot).getStack().isEmpty()
+                        && ItemStack.areItemsAndComponentsEqual(source, ingredients[targetIndex])) {
+                    autoTrade$click(handler, sourceSlot, 0, SlotActionType.PICKUP, mc);
+                    autoTrade$click(handler, targetSlot, 0, SlotActionType.PICKUP, mc);
+                    autoTrade$recoverCursor(handler, first, last, ingredients, mc);
+                    break;
+                }
+            }
+        }
+
+        // Remaining misplaced items go to the player inventory, then to the ground.
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            int slot = first + index;
+            ItemStack stack = handler.getSlot(slot).getStack();
+            if (!stack.isEmpty() && !ItemStack.areItemsAndComponentsEqual(stack, ingredients[index])) {
+                autoTrade$click(handler, slot, 0, SlotActionType.PICKUP, mc);
+                autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
             }
         }
     }
@@ -113,6 +147,24 @@ public abstract class KeybindCallbacksMixin {
             }
         }
         return true;
+    }
+
+    private static void autoTrade$recoverCursor(ScreenHandler handler, int first, int last,
+                                                 ItemStack[] ingredients, MinecraftClient mc) {
+        if (handler.getCursorStack().isEmpty()) {
+            return;
+        }
+        for (int index = 0; index < ingredients.length && first + index <= last; index++) {
+            ItemStack expected = ingredients[index];
+            if (!expected.isEmpty() && handler.getSlot(first + index).getStack().isEmpty()
+                    && ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), expected)) {
+                autoTrade$click(handler, first + index, 0, SlotActionType.PICKUP, mc);
+                break;
+            }
+        }
+        if (!handler.getCursorStack().isEmpty()) {
+            autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
+        }
     }
 
     /** One pass over the backpack per prepare. Each matching backpack stack is
@@ -179,8 +231,8 @@ public abstract class KeybindCallbacksMixin {
                 // Right-click take half (a 1-count stack is taken whole).
                 autoTrade$click(handler, source, 1, SlotActionType.PICKUP, mc);
                 if (!ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), ingredient)) {
-                    autoTrade$clearCursor(handler, first, last, mc);
-                    return;
+                    autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
+                    continue;
                 }
                 // Place the whole half onto the target slot.
                 autoTrade$click(handler, target, 0, SlotActionType.PICKUP, mc);
@@ -188,8 +240,7 @@ public abstract class KeybindCallbacksMixin {
                     autoTrade$click(handler, source, 0, SlotActionType.PICKUP, mc);
                 }
                 if (!handler.getCursorStack().isEmpty()) {
-                    autoTrade$clearCursor(handler, first, last, mc);
-                    return;
+                    autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
                 }
             }
         }
@@ -277,12 +328,57 @@ public abstract class KeybindCallbacksMixin {
         return false;
     }
 
-    private static void autoTrade$clearCursor(ScreenHandler handler, int first, int last, MinecraftClient mc) {
+    private static ItemStack[] autoTrade$copyGrid(ScreenHandler handler, int first, int last) {
+        ItemStack[] grid = new ItemStack[last - first + 1];
+        for (int index = 0; index < grid.length; index++) {
+            grid[index] = handler.getSlot(first + index).getStack().copy();
+        }
+        return grid;
+    }
+
+    private static boolean autoTrade$gridChanged(ScreenHandler handler, int first, int last,
+                                                  ItemStack[] before) {
+        if (before.length != last - first + 1) {
+            return true;
+        }
+        for (int index = 0; index < before.length; index++) {
+            ItemStack after = handler.getSlot(first + index).getStack();
+            ItemStack previous = before[index];
+            if (!ItemStack.areItemsAndComponentsEqual(previous, after)
+                    || previous.getCount() != after.getCount()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void autoTrade$throwInternal(ScreenHandler handler, int slot, int button,
+                                                  MinecraftClient mc) {
+        boolean previous = DropBlock.suppressInternal;
+        DropBlock.suppressInternal = true;
+        try {
+            autoTrade$click(handler, slot, button, SlotActionType.THROW, mc);
+        } finally {
+            DropBlock.suppressInternal = previous;
+        }
+    }
+    private static void autoTrade$returnCursorToInventoryOrDrop(ScreenHandler handler, int first, int last,
+                                                                  MinecraftClient mc) {
         if (handler.getCursorStack().isEmpty()) {
             return;
         }
-        // 清理光标残留时直接丢出背包；是否允许由“拦截目标物品丢弃”统一决定。
-        autoTrade$click(handler, -999, 0, SlotActionType.THROW, mc);
+        for (int slot = last + 1; slot < handler.slots.size() && !handler.getCursorStack().isEmpty(); slot++) {
+            ItemStack target = handler.getSlot(slot).getStack();
+            ItemStack carried = handler.getCursorStack();
+            if (!target.isEmpty() && (!ItemStack.areItemsAndComponentsEqual(target, carried)
+                    || target.getCount() >= target.getMaxCount())) {
+                continue;
+            }
+            autoTrade$click(handler, slot, 0, SlotActionType.PICKUP, mc);
+        }
+        if (!handler.getCursorStack().isEmpty()) {
+            autoTrade$throwInternal(handler, -999, 0, mc);
+        }
     }
 
     private static boolean autoTrade$isMassCraftKeysDown(MinecraftClient mc) {

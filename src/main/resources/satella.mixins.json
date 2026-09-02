@@ -12,13 +12,14 @@
 		"DropBlockPlayerMixin",
 		"DropBlockClickSlotMixin",
 		"DropBlockCreativeScreenMixin",
-		"ScreenOpenMixin"
-		,"GlintItemRendererMixin"
-		,"GlintEquipmentRendererMixin"
-		,"GlintBufferBuilderStorageMixin"
-		,"itemscroller.InventoryUtilsMixin"
-		,"ipn.ItemTypeMixin"
-		,"tweakeroo.InventoryUtilsMixin"
+		"ScreenOpenMixin",
+		"itemscroller.KeybindCallbacksMixin",
+		"GlintItemRendererMixin",
+		"GlintEquipmentRendererMixin",
+		"GlintBufferBuilderStorageMixin",
+		"itemscroller.InventoryUtilsMixin",
+		"ipn.ItemTypeMixin",
+		"tweakeroo.InventoryUtilsMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
