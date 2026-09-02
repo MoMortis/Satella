@@ -153,27 +153,31 @@ public final class ResidualCrafting {
     private static void fillIngredient(AbstractContainerMenu menu, Minecraft minecraft, int first, int last,
                                        ItemStack[] ingredients) {
         prepareScanState(menu, ingredients);
-        if (gridMatchesRecipe(menu, first, last, ingredients)) {
-            return;
-        }
 
         int slotCount = menu.slots.size();
         if (slotCount == 0) {
             return;
         }
 
-        // 先按目标配方和合成格已有物品建立材料表：true 表示该格还缺这种材料
-        boolean[] needed = new boolean[ingredients.length];
+        // 建材料表：每格记录还差多少个才补满（M = 材料最大堆叠上限 - 格内已有数量）
+        int[] deficit = new int[ingredients.length];
         for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
             int slot = first + recipeIndex;
-            needed[recipeIndex] = slot <= last && !ingredients[recipeIndex].isEmpty()
-                    && !ItemStack.isSameItemSameComponents(menu.getSlot(slot).getItem(), ingredients[recipeIndex]);
+            ItemStack gridStack = slot <= last ? menu.getSlot(slot).getItem() : ItemStack.EMPTY;
+            int present = !ingredients[recipeIndex].isEmpty()
+                    && ItemStack.isSameItemSameComponents(gridStack, ingredients[recipeIndex])
+                    ? gridStack.getCount() : 0;
+            deficit[recipeIndex] = ingredients[recipeIndex].isEmpty() || slot > last
+                    ? 0 : ingredients[recipeIndex].getMaxStackSize() - present;
         }
 
         int start = (scanCursor + 1 + slotCount) % slotCount;
         for (int offset = 0; offset < slotCount; offset++) {
             int source = (start + offset) % slotCount;
             scanCursor = source;
+            if (tableComplete(deficit)) {
+                return;
+            }
             if (source >= first && source <= last) {
                 continue;
             }
@@ -187,62 +191,56 @@ public final class ResidualCrafting {
                 continue;
             }
 
-            // 查材料表：这种物品是否还有缺口
-            boolean neededHere = false;
+            // 查材料表：这堆物品要补哪个合成格
+            int target = -1;
             for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
-                if (needed[recipeIndex] && ItemStack.isSameItemSameComponents(sourceStack, ingredients[recipeIndex])) {
-                    neededHere = true;
-                    break;
-                }
-            }
-            if (!neededHere) {
-                continue;
-            }
-
-            // 右键拾起半堆到光标；拾起成功即视为取到了材料
-            click(minecraft, menu, source, 1, ContainerInput.PICKUP);
-            if (menu.getCarried().isEmpty()) {
-                continue;
-            }
-
-            // 先按材料表核销缺口，再把光标物品放进对应的合成格
-            boolean placed = false;
-            for (int recipeIndex = 0; recipeIndex < ingredients.length && !menu.getCarried().isEmpty(); recipeIndex++) {
-                if (!needed[recipeIndex]
-                        || !ItemStack.isSameItemSameComponents(menu.getCarried(), ingredients[recipeIndex])) {
+                if (deficit[recipeIndex] <= 0
+                        || !ItemStack.isSameItemSameComponents(sourceStack, ingredients[recipeIndex])) {
                     continue;
                 }
-                int target = first + recipeIndex;
-                if (target > last) {
-                    continue;
-                }
-                ItemStack gridStack = menu.getSlot(target).getItem();
+                ItemStack gridStack = menu.getSlot(first + recipeIndex).getItem();
                 if (!gridStack.isEmpty() && !ItemStack.isSameItemSameComponents(gridStack, ingredients[recipeIndex])) {
                     continue;
                 }
-                if (gridStack.getCount() >= ingredients[recipeIndex].getMaxStackSize()) {
-                    continue;
-                }
-                needed[recipeIndex] = false;
-                click(minecraft, menu, target, 0, ContainerInput.PICKUP);
-                placed = true;
+                target = recipeIndex;
+                break;
+            }
+            if (target < 0) {
+                continue;
             }
 
-            if (placed) {
-                // 光标还有剩余：先放回来源槽，再回背包，背包放不下才丢弃
-                if (!menu.getCarried().isEmpty()) {
-                    click(minecraft, menu, source, 0, ContainerInput.PICKUP);
-                }
-                if (!menu.getCarried().isEmpty()) {
-                    returnCursorToInventoryOrDrop(menu, first, last, minecraft);
-                }
-                if (gridMatchesRecipe(menu, first, last, ingredients)) {
-                    return;
-                }
-            } else {
+            // 只有当物品堆的一半不超过该格缺口时才取，保证取出来刚好补得进格子，不会有多余
+            int half = (sourceStack.getCount() + 1) / 2;
+            if (half > deficit[target]) {
+                continue;
+            }
+
+            // 右键拾取一半到光标；拾到多少就在材料表里扣多少，扣到 0 以下才认定该格补满
+            click(minecraft, menu, source, 1, ContainerInput.PICKUP);
+            int picked = menu.getCarried().getCount();
+            if (picked == 0 || !ItemStack.isSameItemSameComponents(menu.getCarried(), ingredients[target])) {
+                returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+                continue;
+            }
+            deficit[target] -= picked;
+            // 左键把光标物品放进目标合成格
+            click(minecraft, menu, first + target, 0, ContainerInput.PICKUP);
+
+            // 光标还有剩余（例如本地与服务器状态不一致）：进背包，背包放不下才丢弃
+            if (!menu.getCarried().isEmpty()) {
                 returnCursorToInventoryOrDrop(menu, first, last, minecraft);
             }
         }
+    }
+
+    /** 材料表里所有格子的缺口都已扣减到 0 以下，即补料完成 */
+    private static boolean tableComplete(int[] deficit) {
+        for (int value : deficit) {
+            if (value > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void prepareScanState(AbstractContainerMenu menu, ItemStack[] ingredients) {
