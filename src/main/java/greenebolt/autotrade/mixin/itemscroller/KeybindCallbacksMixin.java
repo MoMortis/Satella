@@ -48,12 +48,19 @@ public abstract class KeybindCallbacksMixin {
             return;
         }
 
-        for (int i = 0; i < iterations; i++) {
+        int limit = Math.max(1, iterations) * 1024;
+        for (int i = 0; i < limit; i++) {
             if (!autoTrade$prepareCraftingGrid(handler, first, last, ingredients, mc)
                     || !ItemStack.areItemsAndComponentsEqual(output.getStack(), result)) {
                 return;
             }
+            ItemStack outputBefore = output.getStack().copy();
             autoTrade$click(handler, output.id, 1, SlotActionType.THROW, mc);
+            ItemStack outputAfter = output.getStack();
+            if (ItemStack.areItemsAndComponentsEqual(outputBefore, outputAfter)
+                    && outputBefore.getCount() == outputAfter.getCount()) {
+                return;
+            }
         }
     }
 

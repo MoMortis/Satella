@@ -19,16 +19,22 @@ public final class ResidualCrafting {
         ItemStack[] ingredients = recipe.getRecipeItems();
         if (result.isEmpty() || ingredients.length > lastGridSlot - firstGridSlot + 1) return false;
         boolean crafted = false;
-        for (int iteration = 0; iteration < iterations; iteration++) {
+        int limit = Math.max(1, iterations) * 1024;
+        for (int iteration = 0; iteration < limit; iteration++) {
             if (!prepare(menu, minecraft, firstGridSlot, lastGridSlot, ingredients)) return crafted;
-            if (!ItemStack.isSameItemSameComponents(menu.getSlot(0).getItem(), result)) return crafted;
+            ItemStack outputBefore = menu.getSlot(0).getItem().copy();
+            if (!ItemStack.isSameItemSameComponents(outputBefore, result)) return crafted;
             DropBlock.suppressInternal = true;
             try {
+                // 与 Item Scroller 的 dropStack 相同：button=1，尽可能取出输出槽中的整组结果。
                 click(minecraft, menu, 0, 1, ContainerInput.THROW);
             } finally {
                 DropBlock.suppressInternal = false;
             }
             crafted = true;
+            ItemStack outputAfter = menu.getSlot(0).getItem();
+            // 输出槽没有变化时停止，避免服务器未接受点击导致死循环。
+            if (ItemStack.matches(outputBefore, outputAfter)) return crafted;
         }
         return crafted;
     }
