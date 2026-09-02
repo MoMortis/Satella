@@ -43,11 +43,8 @@ public final class ResidualCrafting {
         recoverCursor(menu, first, last, ingredients, minecraft);
         repairMalformedGrid(menu, first, last, ingredients, minecraft);
         recoverCursor(menu, first, last, ingredients, minecraft);
-        for (int index = 0; index < ingredients.length; index++) {
-            ItemStack expected = ingredients[index];
-            if (expected.isEmpty() || wasHandled(ingredients, index)) continue;
-            if (!fillIngredient(menu, minecraft, first, last, ingredients, expected)) return false;
-        }
+        // 与 1.21.11 行为一致：一圈未放入材料也继续摊匀与清理，最后按配方是否满足判定本轮成败。
+        fillIngredient(menu, minecraft, first, last, ingredients);
         balanceGrid(menu, minecraft, first, ingredients);
         recoverCursor(menu, first, last, ingredients, minecraft);
         for (int index = ingredients.length; first + index <= last; index++) {
@@ -148,57 +145,110 @@ public final class ResidualCrafting {
         }
     }
 
-    /** One pass over the backpack per prepare. Each matching backpack stack is
-     * compared against the crafting grid per slot: if half of the backpack stack
-     * plus the slot's current contents still fits within the item's max stack size,
-     * the half is right-clicked out and placed whole into that slot; otherwise the
-     * stack is skipped and the next one is checked. */
-    private static boolean fillIngredient(AbstractContainerMenu menu, Minecraft minecraft, int first, int last,
-                                          ItemStack[] ingredients, ItemStack ingredient) {
-        int maxStack = ingredient.getMaxStackSize();
-        int slotCount = 0;
-        for (int index = 0; index < ingredients.length; index++) {
-            if (ItemStack.isSameItemSameComponents(ingredient, ingredients[index])) slotCount++;
-        }
-        int[] slots = new int[slotCount];
-        for (int index = 0, s = 0; index < ingredients.length; index++) {
-            if (ItemStack.isSameItemSameComponents(ingredient, ingredients[index])) slots[s++] = first + index;
+    private static AbstractContainerMenu scanMenu;
+    private static ItemStack[] scanRecipe;
+    private static int scanCursor = -1;
+
+    /** Scans the inventory once with one shared cursor for every recipe ingredient. */
+    private static void fillIngredient(AbstractContainerMenu menu, Minecraft minecraft, int first, int last,
+                                       ItemStack[] ingredients) {
+        prepareScanState(menu, ingredients);
+        if (gridMatchesRecipe(menu, first, last, ingredients)) {
+            return;
         }
 
-        int rotation = 0;
-        int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
-        for (int source = 0; source < menu.slots.size(); source++) {
-            if (source >= first && source <= last) continue;
-            ItemStack sourceStack = menu.getSlot(source).getItem();
-            if (sourceStack.isEmpty() || !ItemStack.isSameItemSameComponents(sourceStack, ingredient)) continue;
-            // 合成残余：0.5*P < reserve 时整堆跳过，继续遍历下一个
-            if (sourceStack.getCount() < 2 * reserve) continue;
-
-            int half = (sourceStack.getCount() + 1) / 2;
-            int target = -1;
-            for (int offset = 0; offset < slots.length && target < 0; offset++) {
-                int slotId = slots[(rotation + offset) % slots.length];
-                ItemStack gridStack = menu.getSlot(slotId).getItem();
-                if (!gridStack.isEmpty() && !ItemStack.isSameItemSameComponents(gridStack, ingredient)) continue;
-                if (gridStack.getCount() + half <= maxStack) {
-                    target = slotId;
-                    rotation = (rotation + offset + 1) % slots.length;
-                }
-            }
-            if (target < 0) continue; // half would overflow every recipe slot: skip this stack
-
-            // Right-click take half (a 1-count stack is taken whole).
-            click(minecraft, menu, source, 1, ContainerInput.PICKUP);
-            if (!ItemStack.isSameItemSameComponents(menu.getCarried(), ingredient)) {
-                returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+        int slotCount = menu.slots.size();
+        if (slotCount == 0) {
+            return;
+        }
+        int start = (scanCursor + 1 + slotCount) % slotCount;
+        for (int offset = 0; offset < slotCount; offset++) {
+            int source = (start + offset) % slotCount;
+            scanCursor = source;
+            if (source >= first && source <= last) {
                 continue;
             }
-            // Place the whole half onto the target slot.
-            click(minecraft, menu, target, 0, ContainerInput.PICKUP);
-            if (!menu.getCarried().isEmpty()) click(minecraft, menu, source, 0, ContainerInput.PICKUP);
-            if (!menu.getCarried().isEmpty()) returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+
+            ItemStack sourceStack = menu.getSlot(source).getItem();
+            if (sourceStack.isEmpty()) {
+                continue;
+            }
+            int half = (sourceStack.getCount() + 1) / 2;
+            int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
+            if (sourceStack.getCount() < 2 * reserve) {
+                continue;
+            }
+
+            boolean placed = false;
+            for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
+                ItemStack expected = ingredients[recipeIndex];
+                if (expected.isEmpty()
+                        || !ItemStack.isSameItemSameComponents(sourceStack, expected)) {
+                    continue;
+                }
+                int target = first + recipeIndex;
+                if (target > last) {
+                    continue;
+                }
+                ItemStack gridStack = menu.getSlot(target).getItem();
+                if (!gridStack.isEmpty()
+                        && !ItemStack.isSameItemSameComponents(gridStack, expected)) {
+                    continue;
+                }
+                if (gridStack.getCount() + half > expected.getMaxStackSize()) {
+                    continue;
+                }
+
+                click(minecraft, menu, source, 1, ContainerInput.PICKUP);
+                if (!ItemStack.isSameItemSameComponents(menu.getCarried(), expected)) {
+                    returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+                    continue;
+                }
+                click(minecraft, menu, target, 0, ContainerInput.PICKUP);
+                if (!menu.getCarried().isEmpty()) {
+                    click(minecraft, menu, source, 0, ContainerInput.PICKUP);
+                }
+                if (!menu.getCarried().isEmpty()) {
+                    returnCursorToInventoryOrDrop(menu, first, last, minecraft);
+                }
+                placed = true;
+                break;
+            }
+            if (placed && gridMatchesRecipe(menu, first, last, ingredients)) {
+                return;
+            }
+        }
+    }
+
+    private static void prepareScanState(AbstractContainerMenu menu, ItemStack[] ingredients) {
+        if (scanMenu == menu
+                && sameRecipe(scanRecipe, ingredients)
+                && scanCursor < menu.slots.size()) {
+            return;
+        }
+        scanMenu = menu;
+        scanRecipe = copyRecipe(ingredients);
+        scanCursor = menu.slots.size() - 1;
+    }
+
+    private static boolean sameRecipe(ItemStack[] first, ItemStack[] second) {
+        if (first == null || second == null || first.length != second.length) {
+            return false;
+        }
+        for (int index = 0; index < first.length; index++) {
+            if (!ItemStack.isSameItemSameComponents(first[index], second[index])) {
+                return false;
+            }
         }
         return true;
+    }
+
+    private static ItemStack[] copyRecipe(ItemStack[] ingredients) {
+        ItemStack[] copy = new ItemStack[ingredients.length];
+        for (int index = 0; index < ingredients.length; index++) {
+            copy[index] = ingredients[index].copy();
+        }
+        return copy;
     }
 
     /** Evens out each ingredient's grid slots so the recipe stays valid and balanced. */

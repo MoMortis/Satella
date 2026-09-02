@@ -38,7 +38,7 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ConfigHotkey MODE_KEY = new ConfigHotkey("切换交易模式键", "", KeybindSettings.DEFAULT, "切换交易模式");
         public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger("合成残余", 0, 0, 32,
                 "残差合成补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆（单位：个）");
-        public static final ConfigInteger AUTO_CRAFTING_INTERVAL = new ConfigInteger("全自动合成周期", 2, 1, 100000,
+        public static final ConfigInteger AUTO_CRAFTING_INTERVAL = new ConfigInteger("全自动合成周期", 3, 1, 100,
                 "全自动合成每隔多少游戏刻执行一次合成，与 Item Scroller 配置无关");
         public static final ConfigBoolean AUTO_CRAFTING = new ConfigBoolean("全自动合成", false,
                 "自动寻找附近工作台，隐藏界面并持续按当前 Item Scroller 配方合成");

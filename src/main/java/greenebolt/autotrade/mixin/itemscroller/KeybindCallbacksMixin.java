@@ -167,74 +167,66 @@ public abstract class KeybindCallbacksMixin {
         }
     }
 
-    /** One pass over the backpack per prepare. Each matching backpack stack is
-     * compared against the crafting grid per slot: if half of the backpack stack
-     * plus the slot's current contents still fits within the item's max stack size,
-     * the half is right-clicked out and placed whole into that slot; otherwise the
-     * stack is skipped and the next one is checked. Afterwards the grid is
-     * rebalanced to an even, valid layout before crafting. */
-    private static void autoTrade$fillMissingRecipeSlots(ScreenHandler handler, int first, int last,
-                                                         ItemStack[] ingredients, MinecraftClient mc) {
-        for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
-            ItemStack ingredient = ingredients[recipeIndex];
-            if (ingredient.isEmpty() || autoTrade$wasHandled(ingredients, recipeIndex)) {
-                continue;
-            }
+    private static ScreenHandler autoTrade$scanHandler;
+    private static ItemStack[] autoTrade$scanRecipe;
+    private static int autoTrade$scanCursor = -1;
 
-            int maxStack = ingredient.getMaxCount();
-            int slotCount = 0;
-            for (int index = 0; index < ingredients.length; index++) {
-                if (ItemStack.areItemsAndComponentsEqual(ingredient, ingredients[index])) {
-                    slotCount++;
-                }
-            }
-            int[] slots = new int[slotCount];
-            for (int index = 0, s = 0; index < ingredients.length; index++) {
-                if (ItemStack.areItemsAndComponentsEqual(ingredient, ingredients[index])) {
-                    slots[s++] = first + index;
-                }
-            }
+    /** Scans the inventory once with one shared cursor for every recipe ingredient. */
+    private static boolean autoTrade$fillMissingRecipeSlots(ScreenHandler handler, int first, int last,
+                                                              ItemStack[] ingredients, MinecraftClient mc) {
+        autoTrade$prepareScanState(handler, ingredients);
+        if (autoTrade$gridMatchesRecipe(handler, first, last, ingredients)) {
+            return true;
+        }
 
-        int rotation = 0;
-        int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
-        for (int source = 0; source < handler.slots.size(); source++) {
+        int slotCount = handler.slots.size();
+        if (slotCount == 0) {
+            return false;
+        }
+        int start = (autoTrade$scanCursor + 1 + slotCount) % slotCount;
+        boolean moved = false;
+        for (int offset = 0; offset < slotCount; offset++) {
+            int source = (start + offset) % slotCount;
+            autoTrade$scanCursor = source;
             if (source >= first && source <= last) {
                 continue;
             }
+
             ItemStack sourceStack = handler.getSlot(source).getStack();
-            if (sourceStack.isEmpty() || !ItemStack.areItemsAndComponentsEqual(sourceStack, ingredient)) {
+            if (sourceStack.isEmpty()) {
                 continue;
             }
-            // 合成残余：0.5*P < reserve 时整堆跳过，继续遍历下一个
+            int half = (sourceStack.getCount() + 1) / 2;
+            int reserve = AutoTradeConfigs.Trade.CRAFT_RESIDUE.getIntegerValue();
             if (sourceStack.getCount() < 2 * reserve) {
                 continue;
             }
 
-                int half = (sourceStack.getCount() + 1) / 2;
-                int target = -1;
-                for (int offset = 0; offset < slots.length && target < 0; offset++) {
-                    int slotId = slots[(rotation + offset) % slots.length];
-                    ItemStack gridStack = handler.getSlot(slotId).getStack();
-                    if (!gridStack.isEmpty() && !ItemStack.areItemsAndComponentsEqual(gridStack, ingredient)) {
-                        continue;
-                    }
-                    if (gridStack.getCount() + half <= maxStack) {
-                        target = slotId;
-                        rotation = (rotation + offset + 1) % slots.length;
-                    }
+            boolean placed = false;
+            for (int recipeIndex = 0; recipeIndex < ingredients.length; recipeIndex++) {
+                ItemStack expected = ingredients[recipeIndex];
+                if (expected.isEmpty()
+                        || !ItemStack.areItemsAndComponentsEqual(sourceStack, expected)) {
+                    continue;
                 }
-                if (target < 0) {
-                    // Half of this stack would overflow every recipe slot: skip it.
+                int target = first + recipeIndex;
+                if (target > last) {
+                    continue;
+                }
+                ItemStack gridStack = handler.getSlot(target).getStack();
+                if (!gridStack.isEmpty()
+                        && !ItemStack.areItemsAndComponentsEqual(gridStack, expected)) {
+                    continue;
+                }
+                if (gridStack.getCount() + half > expected.getMaxCount()) {
                     continue;
                 }
 
-                // Right-click take half (a 1-count stack is taken whole).
                 autoTrade$click(handler, source, 1, SlotActionType.PICKUP, mc);
-                if (!ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), ingredient)) {
+                if (!ItemStack.areItemsAndComponentsEqual(handler.getCursorStack(), expected)) {
                     autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
                     continue;
                 }
-                // Place the whole half onto the target slot.
                 autoTrade$click(handler, target, 0, SlotActionType.PICKUP, mc);
                 if (!handler.getCursorStack().isEmpty()) {
                     autoTrade$click(handler, source, 0, SlotActionType.PICKUP, mc);
@@ -242,8 +234,46 @@ public abstract class KeybindCallbacksMixin {
                 if (!handler.getCursorStack().isEmpty()) {
                     autoTrade$returnCursorToInventoryOrDrop(handler, first, last, mc);
                 }
+                moved = true;
+                placed = true;
+                break;
+            }
+            if (placed && autoTrade$gridMatchesRecipe(handler, first, last, ingredients)) {
+                return true;
             }
         }
+        return moved;
+    }
+
+    private static void autoTrade$prepareScanState(ScreenHandler handler, ItemStack[] ingredients) {
+        if (autoTrade$scanHandler == handler
+                && autoTrade$sameRecipe(autoTrade$scanRecipe, ingredients)
+                && autoTrade$scanCursor < handler.slots.size()) {
+            return;
+        }
+        autoTrade$scanHandler = handler;
+        autoTrade$scanRecipe = autoTrade$copyRecipe(ingredients);
+        autoTrade$scanCursor = handler.slots.size() - 1;
+    }
+
+    private static boolean autoTrade$sameRecipe(ItemStack[] first, ItemStack[] second) {
+        if (first == null || second == null || first.length != second.length) {
+            return false;
+        }
+        for (int index = 0; index < first.length; index++) {
+            if (!ItemStack.areItemsAndComponentsEqual(first[index], second[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static ItemStack[] autoTrade$copyRecipe(ItemStack[] ingredients) {
+        ItemStack[] copy = new ItemStack[ingredients.length];
+        for (int index = 0; index < ingredients.length; index++) {
+            copy[index] = ingredients[index].copy();
+        }
+        return copy;
     }
 
     private static void autoTrade$rebalanceCraftingGrid(ScreenHandler handler, int first, int last,
