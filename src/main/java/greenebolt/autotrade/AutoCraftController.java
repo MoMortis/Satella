@@ -67,8 +67,6 @@ public final class AutoCraftController {
         openCooldown = 10;
     }
 
-        return AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue();
-
     private static BlockPos autoTrade$findCraftingTable(MinecraftClient mc) {
         BlockPos center = mc.player.getBlockPos();
         double maxDistanceSquared = 4.5 * 4.5;

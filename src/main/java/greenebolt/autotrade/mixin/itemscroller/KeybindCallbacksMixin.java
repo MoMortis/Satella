@@ -4,6 +4,7 @@ import greenebolt.autotrade.AutoTrade;
 import greenebolt.autotrade.AutoTradeConfigs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
@@ -21,6 +22,9 @@ import java.lang.reflect.Modifier;
 /** Provides the crafting helper used by Satella's automatic crafting controller. */
 @Mixin(targets = "fi.dy.masa.itemscroller.event.KeybindCallbacks", remap = false)
 public abstract class KeybindCallbacksMixin {
+    /** Runs the residual recipe against the hidden vanilla crafting-table handler. */
+    private static void autoTrade$craftHidden(net.minecraft.screen.CraftingScreenHandler handler,
+                                              MinecraftClient mc) {
         try {
                 autoTrade$craftHandler(handler, handler.getSlot(0), 1, 9, mc, 1);
         } catch (ReflectiveOperationException | ClassCastException e) {
