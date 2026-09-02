@@ -1,11 +1,8 @@
 package greenebolt.autotrade;
 
-import fi.dy.masa.malilib.util.InfoUtils;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundContainerClosePacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.CraftingMenu;
@@ -20,17 +17,8 @@ public final class AutoCraftController {
     private AutoCraftController() {}
 
     public static boolean isActive() {
-        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
-    }
-
-    public static void toggle() {
-        boolean enabled = !AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
-        AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(enabled);
-        if (!enabled) close(Minecraft.getInstance());
-        openCooldown = 0;
-        craftCooldown = 0;
-        InfoUtils.sendVanillaMessage(Component.literal(enabled ? "全自动合成已开启" : "全自动合成已关闭")
-                .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.RED));
+        return AutoTradeConfigs.Trade.AUTOMATION.getBooleanValue()
+                && AutoTradeConfigs.Trade.AUTOMATION_MODE.getOptionListValue() == AutomationMode.CRAFTING;
     }
 
     public static void tick(Minecraft minecraft) {
@@ -39,7 +27,7 @@ public final class AutoCraftController {
             return;
         }
         if (minecraft.player.containerMenu instanceof CraftingMenu menu) {
-            if (++craftCooldown >= AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue()) {
+            if (++craftCooldown >= AutoTradeConfigs.Trade.AUTOMATION_INTERVAL.getIntegerValue()) {
                 craftCooldown = 0;
                 ResidualCrafting.craft(menu, minecraft, 1, 9, 1);
             }
@@ -66,7 +54,8 @@ public final class AutoCraftController {
         return best;
     }
 
-    private static void close(Minecraft minecraft) {
+    /** 关闭隐藏的工作台容器，供自动化开关/模式切换调用 */
+    public static void close(Minecraft minecraft) {
         if (minecraft.player == null || !(minecraft.player.containerMenu instanceof CraftingMenu)) return;
         if (minecraft.getConnection() != null) minecraft.getConnection().getConnection()
                 .send(new ServerboundContainerClosePacket(minecraft.player.containerMenu.containerId));

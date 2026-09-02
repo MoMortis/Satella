@@ -21,19 +21,8 @@ public final class AutoCraftController {
     private AutoCraftController() {}
 
     public static boolean isActive() {
-        return AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
-    }
-
-    public static void toggle() {
-        boolean enabled = !AutoTradeConfigs.Trade.AUTO_CRAFTING.getBooleanValue();
-        AutoTradeConfigs.Trade.AUTO_CRAFTING.setBooleanValue(enabled);
-        if (!enabled) {
-            autoTrade$closeHiddenCrafting(MinecraftClient.getInstance());
-        }
-        craftTicker = 0;
-        openCooldown = 0;
-        InfoUtils.sendVanillaMessage(Text.literal(enabled ? "全自动合成已开启" : "全自动合成已关闭")
-                .formatted(enabled ? Formatting.GREEN : Formatting.RED));
+        return AutoTradeConfigs.Trade.AUTOMATION.getBooleanValue()
+                && AutoTradeConfigs.Trade.AUTOMATION_MODE.getOptionListValue() == AutomationMode.CRAFTING;
     }
 
     public static void tick(MinecraftClient mc) {
@@ -46,7 +35,7 @@ public final class AutoCraftController {
         InfoUtils.sendVanillaMessage(Text.literal("全自动合成中...").formatted(Formatting.GREEN));
 
         if (mc.player.currentScreenHandler instanceof CraftingScreenHandler handler) {
-            if (++craftTicker >= AutoTradeConfigs.Trade.AUTO_CRAFTING_INTERVAL.getIntegerValue()) {
+            if (++craftTicker >= AutoTradeConfigs.Trade.AUTOMATION_INTERVAL.getIntegerValue()) {
                 craftTicker = 0;
                 autoTrade$craftHidden(handler, mc);
             }
@@ -91,7 +80,8 @@ public final class AutoCraftController {
         return closest;
     }
 
-    private static void autoTrade$closeHiddenCrafting(MinecraftClient mc) {
+    /** 关闭隐藏的工作台容器，供自动化开关/模式切换调用 */
+    public static void close(MinecraftClient mc) {
         if (mc.player == null || !(mc.player.currentScreenHandler instanceof CraftingScreenHandler)) {
             return;
         }

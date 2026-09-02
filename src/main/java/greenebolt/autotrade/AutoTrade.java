@@ -68,7 +68,8 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
 
         AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind().setCallback(this);
         AutoTradeConfigs.Trade.MODE_KEY.getKeybind().setCallback(this);
-        AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind().setCallback(this);
         InputEventHandler.getKeybindManager().registerKeybindProvider(this);
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -78,6 +79,7 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
             }
             tickBetterCrossbow(client);
             AutoCraftController.tick(client);
+            AutoStonecutController.tick(client);
             tickCounter++;
             if (tickCounter >= AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) {
                 tickCounter = 0;
@@ -153,7 +155,8 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
     public void addKeysToMap(IKeybindManager manager) {
         manager.addKeybindToMap(AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind());
         manager.addKeybindToMap(AutoTradeConfigs.Trade.MODE_KEY.getKeybind());
-        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind());
     }
 
     @Override
@@ -161,7 +164,8 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
         manager.addHotkeysForCategory(MOD_ID, "自动交易", List.of(
                 AutoTradeConfigs.Trade.TOGGLE_KEY,
                 AutoTradeConfigs.Trade.MODE_KEY,
-                AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY));
+                AutoTradeConfigs.Trade.AUTOMATION_KEY,
+                AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY));
     }
 
     @Override
@@ -170,8 +174,10 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
             toggleEnabled();
         } else if (key == AutoTradeConfigs.Trade.MODE_KEY.getKeybind()) {
             cycleMode();
-        } else if (key == AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind()) {
-            AutoCraftController.toggle();
+        } else if (key == AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind()) {
+            toggleAutomation();
+        } else if (key == AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind()) {
+            cycleAutomationMode();
         }
         return true;
     }
@@ -199,6 +205,37 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
         tradeOfferIndex.clear();
         tradeUsesLeft.clear();
         tradeRefillCount.clear();
+    }
+
+    private void toggleAutomation() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null) {
+            return;
+        }
+
+        boolean enabled = !AutoTradeConfigs.Trade.AUTOMATION.getBooleanValue();
+        AutoTradeConfigs.Trade.AUTOMATION.setBooleanValue(enabled);
+        if (!enabled) {
+            AutoCraftController.close(mc);
+            AutoStonecutController.close(mc);
+        }
+        InfoUtils.sendVanillaMessage(Text.literal(enabled ? "自动化已开启" : "自动化已关闭")
+                .formatted(enabled ? Formatting.GREEN : Formatting.RED));
+    }
+
+    private void cycleAutomationMode() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null) {
+            return;
+        }
+
+        IConfigOptionListEntry newMode = AutoTradeConfigs.Trade.AUTOMATION_MODE.getOptionListValue().cycle(true);
+        AutoTradeConfigs.Trade.AUTOMATION_MODE.setOptionListValue(newMode);
+        AutoCraftController.close(mc);
+        AutoStonecutController.close(mc);
+
+        InfoUtils.sendVanillaMessage(Text.literal("自动化模式: ").formatted(Formatting.YELLOW)
+                .append(Text.literal(newMode.getDisplayName()).formatted(Formatting.GOLD)));
     }
 
     public void cycleMode() {

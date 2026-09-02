@@ -2,6 +2,7 @@ package greenebolt.autotrade.mixin;
 
 import greenebolt.autotrade.AutoTradeConfigs;
 import greenebolt.autotrade.AutoCraftController;
+import greenebolt.autotrade.AutoStonecutController;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
@@ -22,7 +23,8 @@ public class ScreenOpenMixin {
 	private void onOpenScreen(OpenScreenS2CPacket packet, CallbackInfo ci) {
 		boolean hiddenMerchant = AutoTradeConfigs.isEnabled() && packet.getScreenHandlerType() == ScreenHandlerType.MERCHANT;
 		boolean hiddenCrafting = AutoCraftController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.CRAFTING;
-		if (!hiddenMerchant && !hiddenCrafting) {
+		boolean hiddenStonecutting = AutoStonecutController.isActive() && packet.getScreenHandlerType() == ScreenHandlerType.STONECUTTER;
+		if (!hiddenMerchant && !hiddenCrafting && !hiddenStonecutting) {
 			return;
 		}
 

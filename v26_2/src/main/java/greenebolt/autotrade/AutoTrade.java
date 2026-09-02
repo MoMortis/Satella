@@ -40,13 +40,15 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         Registry.CONFIG_SCREEN.registerConfigScreenFactory(new ModInfo(MOD_ID, "Satella", AutoTradeConfigGui::new));
         AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind().setCallback(this);
         AutoTradeConfigs.Trade.MODE_KEY.getKeybind().setCallback(this);
-        AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind().setCallback(this);
+        AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind().setCallback(this);
         InputEventHandler.getKeybindManager().registerKeybindProvider(this);
     }
 
     public static void tick(Minecraft minecraft) {
         if (minecraft.level != null) ItemNameUtils.warmup();
         AutoCraftController.tick(minecraft);
+        AutoStonecutController.tick(minecraft);
         if (++tickCounter < AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) return;
         tickCounter = 0;
         if (minecraft.player == null || minecraft.level == null || minecraft.gameMode == null || !AutoTradeConfigs.isEnabled() || !AutoTradeConfigs.isAutoMode()) return;
@@ -68,18 +70,21 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
     @Override public void addKeysToMap(IKeybindManager manager) {
         manager.addKeybindToMap(AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind());
         manager.addKeybindToMap(AutoTradeConfigs.Trade.MODE_KEY.getKeybind());
-        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind());
+        manager.addKeybindToMap(AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind());
     }
 
     @Override public void addHotkeys(IKeybindManager manager) {
         manager.addHotkeysForCategory(MOD_ID, "自动交易", List.of(AutoTradeConfigs.Trade.TOGGLE_KEY,
-                AutoTradeConfigs.Trade.MODE_KEY, AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY));
+                AutoTradeConfigs.Trade.MODE_KEY, AutoTradeConfigs.Trade.AUTOMATION_KEY,
+                AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY));
     }
 
     @Override public boolean onKeyAction(KeyAction action, IKeybind key) {
         if (key == AutoTradeConfigs.Trade.TOGGLE_KEY.getKeybind()) toggle();
         else if (key == AutoTradeConfigs.Trade.MODE_KEY.getKeybind()) cycleMode();
-        else if (key == AutoTradeConfigs.Trade.AUTO_CRAFTING_KEY.getKeybind()) AutoCraftController.toggle();
+        else if (key == AutoTradeConfigs.Trade.AUTOMATION_KEY.getKeybind()) toggleAutomation();
+        else if (key == AutoTradeConfigs.Trade.AUTOMATION_MODE_KEY.getKeybind()) cycleAutomationMode();
         return true;
     }
 
@@ -99,6 +104,30 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         AutoTradeConfigs.Trade.MODE.setOptionListValue(mode);
         ConfigManager.getInstance().onConfigsChanged(MOD_ID);
         InfoUtils.sendVanillaMessage(Component.literal("交易模式已切换: " + mode.getDisplayName()).withStyle(ChatFormatting.YELLOW));
+    }
+
+    private static void toggleAutomation() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) return;
+        boolean enabled = !AutoTradeConfigs.Trade.AUTOMATION.getBooleanValue();
+        AutoTradeConfigs.Trade.AUTOMATION.setBooleanValue(enabled);
+        if (!enabled) {
+            AutoCraftController.close(minecraft);
+            AutoStonecutController.close(minecraft);
+        }
+        InfoUtils.sendVanillaMessage(Component.literal(enabled ? "自动化已开启" : "自动化已关闭")
+                .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.RED));
+    }
+
+    private static void cycleAutomationMode() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) return;
+        var newMode = AutoTradeConfigs.Trade.AUTOMATION_MODE.getOptionListValue().cycle(true);
+        AutoTradeConfigs.Trade.AUTOMATION_MODE.setOptionListValue(newMode);
+        AutoCraftController.close(minecraft);
+        AutoStonecutController.close(minecraft);
+        InfoUtils.sendVanillaMessage(Component.literal("自动化模式: " + newMode.getDisplayName())
+                .withStyle(ChatFormatting.GOLD));
     }
 
     public static void onInteractEntity(Entity entity) {
