@@ -83,7 +83,7 @@ public class AutoTradeConfigs implements IConfigHandler {
                 "让 Item Scroller、Inventory Profiles Next 和 Tweakeroo 忽略指定潜影盒组件，配置文件位于 config/satella/ignored-components.txt");
 
         public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger(
-                "合成残余", 0, 0, 16,
+                "合成残余", 0, 0, 32,
                 "残差合成补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆\n单位：个");
 
         public static final ConfigInteger AUTO_CRAFTING_INTERVAL = new ConfigInteger(

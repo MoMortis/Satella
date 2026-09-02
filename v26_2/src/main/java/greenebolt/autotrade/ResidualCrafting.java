@@ -40,12 +40,9 @@ public final class ResidualCrafting {
             ItemStack expected = ingredients[index];
             Slot slot = menu.getSlot(slotId);
             ItemStack actual = slot.getItem();
-            if (expected.isEmpty()) {
-                if (!actual.isEmpty() && !moveToInventory(menu, minecraft, slotId, first, last)) return false;
-                continue;
+            if (!actual.isEmpty() && (expected.isEmpty() || !ItemStack.isSameItemSameComponents(actual, expected))) {
+                click(minecraft, menu, slotId, 0, ContainerInput.THROW);
             }
-            if (!actual.isEmpty() && !ItemStack.isSameItemSameComponents(actual, expected)
-                    && !moveToInventory(menu, minecraft, slotId, first, last)) return false;
         }
         for (int index = 0; index < ingredients.length; index++) {
             ItemStack expected = ingredients[index];
@@ -169,17 +166,9 @@ public final class ResidualCrafting {
     }
 
     private static boolean clearCursor(AbstractContainerMenu menu, Minecraft minecraft, int first, int last) {
-        ItemStack carried = menu.getCarried();
-        if (carried.isEmpty()) return true;
-        for (int slotId = 0; slotId < menu.slots.size() && !menu.getCarried().isEmpty(); slotId++) {
-            if (slotId >= first && slotId <= last) continue;
-            Slot slot = menu.getSlot(slotId);
-            if (!slot.getItem().isEmpty() && ItemStack.isSameItemSameComponents(slot.getItem(), menu.getCarried())) click(minecraft, menu, slotId, 0, ContainerInput.PICKUP);
-        }
-        for (int slotId = 0; slotId < menu.slots.size() && !menu.getCarried().isEmpty(); slotId++) {
-            if (slotId >= first && slotId <= last) continue;
-            if (menu.getSlot(slotId).getItem().isEmpty()) click(minecraft, menu, slotId, 0, ContainerInput.PICKUP);
-        }
+        if (menu.getCarried().isEmpty()) return true;
+        // 清理光标残留时直接丢出背包；是否允许由“拦截目标物品丢弃”统一决定。
+        click(minecraft, menu, -999, 0, ContainerInput.THROW);
         return menu.getCarried().isEmpty();
     }
 

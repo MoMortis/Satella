@@ -83,7 +83,7 @@ public abstract class KeybindCallbacksMixin {
             ItemStack stack = handler.getSlot(slot).getStack();
             if (!stack.isEmpty() && (ingredients[index].isEmpty()
                     || !ItemStack.areItemsAndComponentsEqual(stack, ingredients[index]))) {
-                autoTrade$click(handler, slot, 0, SlotActionType.PICKUP, mc);
+                autoTrade$click(handler, slot, 0, SlotActionType.THROW, mc);
                 autoTrade$clearCursor(handler, first, last, mc);
                 if (!handler.getCursorStack().isEmpty()) {
                     return;
@@ -274,30 +274,8 @@ public abstract class KeybindCallbacksMixin {
         if (handler.getCursorStack().isEmpty()) {
             return;
         }
-        // First merge into matching backpack stacks, then use an empty backpack slot.
-        for (int slot = 0; slot < handler.slots.size() && !handler.getCursorStack().isEmpty(); slot++) {
-            if (slot >= first && slot <= last) {
-                continue;
-            }
-            Slot target = handler.getSlot(slot);
-            if (!target.getStack().isEmpty()
-                    && ItemStack.areItemsAndComponentsEqual(target.getStack(), handler.getCursorStack())
-                    && target.canInsert(handler.getCursorStack())) {
-                autoTrade$click(handler, slot, 0, SlotActionType.PICKUP, mc);
-            }
-        }
-        for (int slot = 0; slot < handler.slots.size() && !handler.getCursorStack().isEmpty(); slot++) {
-            if (slot >= first && slot <= last) {
-                continue;
-            }
-            Slot target = handler.getSlot(slot);
-            if (target.getStack().isEmpty() && target.canInsert(handler.getCursorStack())) {
-                autoTrade$click(handler, slot, 0, SlotActionType.PICKUP, mc);
-            }
-        }
-        if (!handler.getCursorStack().isEmpty()) {
-            autoTrade$click(handler, -999, 0, SlotActionType.PICKUP, mc);
-        }
+        // 清理光标残留时直接丢出背包；是否允许由“拦截目标物品丢弃”统一决定。
+        autoTrade$click(handler, -999, 0, SlotActionType.THROW, mc);
     }
 
     private static boolean autoTrade$isMassCraftKeysDown(MinecraftClient mc) {
