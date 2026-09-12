@@ -40,7 +40,9 @@ public final class AutoTradeConfigs implements IConfigHandler {
         public static final ConfigString OUTPUT_ITEM = new ConfigString("输出物品", "铁锭", "物品 ID 或当前语言显示名");
         public static final ConfigBoolean DROP_OUTPUTS = new ConfigBoolean("交易后丢弃输出物品", false, "将交易结果丢弃到地面");
         public static final ConfigBoolean TRADE_GUI = new ConfigBoolean("交易GUI", false,
-                "开启时自动交易会正常显示村民交易界面（每个交易周期会刷新，可随时手动关闭）；关闭时隐藏界面后台交易");
+                "开启时正常显示村民交易界面且交易期间保持打开（手动关闭后会在下个交易间隔自动重新打开）；关闭时隐藏界面后台交易");
+        public static final ConfigInteger REFRESH_TRADE_GUI = new ConfigInteger("刷新交易界面", 0, 0, 1200,
+                "每隔多少 gt 关闭一次村民交易界面（关闭后下个交易间隔会自动重新打开并刷新交易）；0 = 不主动刷新\n单位：gt");
         public static final ConfigHotkey TOGGLE_KEY = new ConfigHotkey("自动交易开关键", "", KEYBIND_ANY_CONTEXT,
                 "按下开启或关闭自动交易（默认未绑定，游戏内和界面中均可触发）");
         public static final ConfigHotkey MODE_KEY = new ConfigHotkey("切换交易模式键", "", KEYBIND_ANY_CONTEXT,
@@ -83,7 +85,7 @@ public final class AutoTradeConfigs implements IConfigHandler {
                         + "未命中任何环时，使用 /st seed 设置的全局种子且不加载任何数据包 zip");
         /** 配置界面“交易”分类页 */
         public static final ImmutableList<IConfigBase> TRADE_OPTIONS = ImmutableList.of(ENABLED, MODE, TICK_INTERVAL,
-                TRADES_PER_SESSION, INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TRADE_GUI, TOGGLE_KEY, MODE_KEY);
+                TRADES_PER_SESSION, INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM, DROP_OUTPUTS, TRADE_GUI, REFRESH_TRADE_GUI, TOGGLE_KEY, MODE_KEY);
 
         /** 配置界面“自动化”分类页 */
         public static final ImmutableList<IConfigBase> AUTOMATION_OPTIONS = ImmutableList.of(AUTOMATION,

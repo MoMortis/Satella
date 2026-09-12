@@ -47,6 +47,7 @@ public class MerchantMixin {
 				AutoTrade.tradeOfferIndex.clear();
 				AutoTrade.tradeUsesLeft.clear();
 				AutoTrade.tradeRefillCount.clear();
+				TradeExecutor.resetCachedOffers();
 			}
 		} else if (packet instanceof SetTradeOffersS2CPacket setTradeOffersS2CPacket) {
 			TradeExecutor.handleTradeOffers(setTradeOffersS2CPacket);

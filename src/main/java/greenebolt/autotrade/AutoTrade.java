@@ -20,6 +20,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.screen.MerchantScreenHandler;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Hand;
@@ -50,6 +51,10 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
     private static UUID currentVillagerUuid;
     private static boolean autoOpening = false;
     private int tickCounter;
+    // 自增 tick 计数：用于“每 gt 最多执行一轮成交”去重
+    public static int tickId;
+    // “刷新交易界面”的计时器
+    private int refreshTradeGuiCounter;
     private int betterCrossbowCounter;
     private boolean betterCrossbowActive;
     private static boolean physicalUseKeyDown;
@@ -81,6 +86,15 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
             AutoCraftController.tick(client);
             AutoStonecutController.tick(client);
             tickCounter++;
+            tickId++;
+            // 定时刷新交易界面：每 N gt 关闭一次容器（关闭包先于右键到达，服务端清状态后当次右键即可重新打开）
+            if (client.player != null && AutoTradeConfigs.isEnabled() && AutoTradeConfigs.isAutoMode()) {
+                int refreshInterval = AutoTradeConfigs.Trade.REFRESH_TRADE_GUI.getIntegerValue();
+                if (refreshInterval > 0 && ++refreshTradeGuiCounter >= refreshInterval) {
+                    refreshTradeGuiCounter = 0;
+                    TradeExecutor.closeTradeGui(client);
+                }
+            }
             if (tickCounter >= AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) {
                 tickCounter = 0;
                 if (client.player == null || client.world == null || !AutoTradeConfigs.isEnabled()
@@ -88,6 +102,10 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
                     return;
                 }
                 pollNextVillager(client);
+                // 开始交易条件之二：村民交易界面已打开，直接在现有容器上开始一轮交易（无需等新的交易列表包）
+                if (client.player.currentScreenHandler instanceof MerchantScreenHandler) {
+                    TradeExecutor.purchaseCurrent(client);
+                }
             }
         });
     }
@@ -198,6 +216,7 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
         } else {
             trackedVillagers.clear();
             lastTradeState.clear();
+            TradeExecutor.closeTradeGui(mc);
             InfoUtils.sendVanillaMessage(Text.literal("自动交易已关闭").formatted(Formatting.RED));
         }
 

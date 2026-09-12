@@ -18,6 +18,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.phys.EntityHitResult;
 
 import java.util.LinkedHashSet;
@@ -48,6 +49,15 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         if (minecraft.level != null) ItemNameUtils.warmup();
         AutoCraftController.tick(minecraft);
         AutoStonecutController.tick(minecraft);
+        tickId++;
+        // 定时刷新交易界面：每 N gt 关闭一次容器（关闭包先于右键到达，服务端清状态后当次右键即可重新打开）
+        if (minecraft.player != null && AutoTradeConfigs.isEnabled() && AutoTradeConfigs.isAutoMode()) {
+            int refreshInterval = AutoTradeConfigs.Trade.REFRESH_TRADE_GUI.getIntegerValue();
+            if (refreshInterval > 0 && ++refreshTradeGuiCounter >= refreshInterval) {
+                refreshTradeGuiCounter = 0;
+                TradeExecutor.closeTradeGui(minecraft);
+            }
+        }
         if (++tickCounter < AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) return;
         tickCounter = 0;
         if (minecraft.player == null || minecraft.level == null || minecraft.gameMode == null || !AutoTradeConfigs.isEnabled() || !AutoTradeConfigs.isAutoMode()) return;
@@ -62,7 +72,17 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
             minecraft.gameMode.interact(minecraft.player, villager, new EntityHitResult(villager), InteractionHand.MAIN_HAND);
             autoOpening = false;
         }
+        // 开始交易条件之二：村民交易界面已打开，直接在现有容器上开始一轮交易（无需等新的交易列表包）
+        if (minecraft.player.containerMenu instanceof MerchantMenu) {
+            TradeExecutor.purchaseCurrent(minecraft);
+        }
     }
+
+    /** 自增 tick 计数：用于“每 gt 最多执行一轮成交”去重 */
+    public static int tickId;
+
+    /** “刷新交易界面”的计时器 */
+    private static int refreshTradeGuiCounter;
 
     /** 26.2 的 ClientLevel 没有公开的按 UUID 查找，只能遍历已加载实体比对 */
     private static Entity findEntity(Minecraft minecraft, UUID uuid) {
@@ -103,6 +123,7 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         ConfigManager.getInstance().onConfigsChanged(MOD_ID);
         if (!enabled) {
             TRACKED_VILLAGERS.clear();
+            TradeExecutor.closeTradeGui(Minecraft.getInstance());
         }
         InfoUtils.sendVanillaMessage(Component.literal(enabled ? "自动交易已开启" : "自动交易已关闭").withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.RED));
     }
