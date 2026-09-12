@@ -27,9 +27,8 @@ import java.util.UUID;
 
 public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallback {
     public static final String MOD_ID = "satella";
-    private static final Set<Integer> TRACKED_VILLAGERS = new LinkedHashSet<>();
-    private static UUID trackedVillagerUuid;
-    private static Entity lastInteracted;
+    // 用村民的 UUID（跨重进不变）做交易目标标识；实体数字 ID 每次登录会重新分配，不能持久跟踪
+    private static final Set<UUID> TRACKED_VILLAGERS = new LinkedHashSet<>();
     private static boolean autoOpening;
 
     @Override public void onInitialize() {
@@ -52,17 +51,27 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         if (++tickCounter < AutoTradeConfigs.Trade.TICK_INTERVAL.getIntegerValue()) return;
         tickCounter = 0;
         if (minecraft.player == null || minecraft.level == null || minecraft.gameMode == null || !AutoTradeConfigs.isEnabled() || !AutoTradeConfigs.isAutoMode()) return;
-        TRACKED_VILLAGERS.removeIf(id -> {
-            Entity entity = minecraft.level.getEntity(id);
+        TRACKED_VILLAGERS.removeIf(uuid -> {
+            Entity entity = findEntity(minecraft, uuid);
             return !(entity instanceof Villager) || entity.isRemoved() || minecraft.player.distanceToSqr(entity) > 64.0;
         });
         if (TRACKED_VILLAGERS.isEmpty()) return;
-        Entity entity = minecraft.level.getEntity(TRACKED_VILLAGERS.iterator().next());
+        Entity entity = findEntity(minecraft, TRACKED_VILLAGERS.iterator().next());
         if (entity instanceof Villager villager) {
             autoOpening = true;
             minecraft.gameMode.interact(minecraft.player, villager, new EntityHitResult(villager), InteractionHand.MAIN_HAND);
             autoOpening = false;
         }
+    }
+
+    /** 26.2 的 ClientLevel 没有公开的按 UUID 查找，只能遍历已加载实体比对 */
+    private static Entity findEntity(Minecraft minecraft, UUID uuid) {
+        for (Entity entity : minecraft.level.entitiesForRendering()) {
+            if (uuid.equals(entity.getUUID())) {
+                return entity;
+            }
+        }
+        return null;
     }
 
     private static int tickCounter;
@@ -94,7 +103,6 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
         ConfigManager.getInstance().onConfigsChanged(MOD_ID);
         if (!enabled) {
             TRACKED_VILLAGERS.clear();
-            trackedVillagerUuid = null;
         }
         InfoUtils.sendVanillaMessage(Component.literal(enabled ? "自动交易已开启" : "自动交易已关闭").withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.RED));
     }
@@ -132,18 +140,14 @@ public final class AutoTrade implements ModInitializer, IKeybindProvider, IHotke
 
     public static void onInteractEntity(Entity entity) {
         if (autoOpening || !(entity instanceof Villager)) return;
-        lastInteracted = entity;
         if (AutoTradeConfigs.isEnabled() && AutoTradeConfigs.isAutoMode()) {
             TRACKED_VILLAGERS.clear();
-            TRACKED_VILLAGERS.add(entity.getId());
-            trackedVillagerUuid = entity.getUUID();
+            TRACKED_VILLAGERS.add(entity.getUUID());
             InfoUtils.sendVanillaMessage(Component.literal("已标记为目标村民").withStyle(ChatFormatting.GREEN));
         }
     }
 
     public static boolean isHighlighted(Entity entity) {
-        return trackedVillagerUuid != null && trackedVillagerUuid.equals(entity.getUUID());
+        return TRACKED_VILLAGERS.contains(entity.getUUID());
     }
-
-    public static int currentVillagerId() { return lastInteracted instanceof Villager ? lastInteracted.getId() : -1; }
 }

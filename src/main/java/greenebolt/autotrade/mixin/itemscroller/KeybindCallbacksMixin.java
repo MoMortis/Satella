@@ -2,11 +2,13 @@ package greenebolt.autotrade.mixin.itemscroller;
 
 import greenebolt.autotrade.AutoTrade;
 import greenebolt.autotrade.AutoTradeConfigs;
+import greenebolt.autotrade.CraftFillMode;
 import greenebolt.autotrade.DropBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.item.ItemStack;
+import net.minecraft.recipe.NetworkRecipeId;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
 import net.minecraft.screen.slot.SlotActionType;
@@ -19,6 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Objects;
 
 /** Provides the crafting helper used by Satella's automatic crafting controller. */
 @Mixin(targets = "fi.dy.masa.itemscroller.event.KeybindCallbacks", remap = false)
@@ -27,10 +30,69 @@ public abstract class KeybindCallbacksMixin {
     private static void autoTrade$craftHidden(net.minecraft.screen.CraftingScreenHandler handler,
                                               MinecraftClient mc) {
         try {
+            if (AutoTradeConfigs.Trade.CRAFT_FILL_MODE.getOptionListValue() == CraftFillMode.RECIPE_BOOK) {
+                autoTrade$craftWithRecipeBook(handler, mc);
+            } else {
+                autoTrade$resetRecipeBookState();
                 autoTrade$craftHandler(handler, handler.getSlot(0), 1, 9, mc, 1);
+            }
         } catch (ReflectiveOperationException | ClassCastException e) {
             AutoTrade.LOGGER.warn("Automatic residual crafting failed", e);
         }
+    }
+
+    private static ScreenHandler autoTrade$recipeBookHandler;
+    private static Object autoTrade$recipeBookId;
+    private static ItemStack autoTrade$recipeBookResult;
+
+    private static void autoTrade$craftWithRecipeBook(net.minecraft.screen.CraftingScreenHandler handler,
+                                                       MinecraftClient mc) throws ReflectiveOperationException {
+        Object storage = autoTrade$callStatic("fi.dy.masa.itemscroller.recipes.RecipeStorage", "getInstance");
+        Object recipe = autoTrade$call(storage, "getSelectedRecipe");
+        ItemStack result = (ItemStack) autoTrade$call(recipe, "getResult");
+        if (result.isEmpty()) {
+            autoTrade$resetRecipeBookState();
+            return;
+        }
+
+        // 旧配方可能只保存了材料和结果，进入配方书模式时主动重新匹配网络配方编号。
+        autoTrade$call(recipe, "storeIdFromClientRecipeBook", mc);
+        Object recipeId = autoTrade$call(recipe, "getNetworkRecipeId");
+        if (recipeId == null) {
+            autoTrade$resetRecipeBookState();
+            AutoTrade.LOGGER.warn("Recipe book mode has no network recipe id for selected recipe");
+            return;
+        }
+
+        boolean changed = autoTrade$recipeBookHandler != handler
+                || !Objects.equals(autoTrade$recipeBookId, recipeId)
+                || autoTrade$recipeBookResult == null
+                || !ItemStack.areItemsAndComponentsEqual(autoTrade$recipeBookResult, result);
+        if (changed) {
+            autoTrade$recipeBookHandler = handler;
+            autoTrade$recipeBookId = recipeId;
+            autoTrade$recipeBookResult = result.copy();
+        }
+
+        ItemStack output = handler.getSlot(0).getStack();
+        if (!output.isEmpty()) {
+            if (ItemStack.areItemsAndComponentsEqual(output, autoTrade$recipeBookResult)) {
+                autoTrade$throwInternal(handler, 0, 1, mc);
+            }
+            return;
+        }
+
+        int requests = AutoTradeConfigs.Trade.RECIPE_FILL_ITERATIONS.getIntegerValue();
+        // 与“配方填入次数”的配置含义一致：本周期连续发送指定次数的普通请求。
+        for (int i = 0; i < requests; i++) {
+            mc.interactionManager.clickRecipe(handler.syncId, (NetworkRecipeId) recipeId, false);
+        }
+    }
+
+    private static void autoTrade$resetRecipeBookState() {
+        autoTrade$recipeBookHandler = null;
+        autoTrade$recipeBookId = null;
+        autoTrade$recipeBookResult = null;
     }
 
     private static void autoTrade$craftHandler(ScreenHandler handler, Slot output, int first, int last,
@@ -199,6 +261,9 @@ public abstract class KeybindCallbacksMixin {
             int source = (start + offset) % slotCount;
             autoTrade$scanCursor = source;
             if (autoTrade$tableComplete(deficit)) {
+                // 材料补满提前结束时，把游标回退到最后一个实际检查过的槽位，
+                // 让当前这个没检查过的槽位下一轮第一个被查，避免被跳过
+                autoTrade$scanCursor = (source - 1 + slotCount) % slotCount;
                 return true;
             }
             if (source >= first && source <= last) {

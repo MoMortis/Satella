@@ -44,10 +44,10 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
     // 每个交易每次 SelectMerchantTrade（服务端 autofill 填满输入槽）后能支撑的成交次数
     public static List<Integer> tradeRefillCount = new ArrayList<>();
 
-    private static final Set<Integer> trackedVillagers = new LinkedHashSet<>();
-    private static UUID trackedVillagerUuid;
-    private static final Map<Integer, Boolean> lastTradeState = new HashMap<>();
-    private static Entity lastInteractedEntity;
+    // 用村民的 UUID（跨重进不变）做交易目标标识；实体数字 ID 每次登录会重新分配，不能持久跟踪
+    private static final Set<UUID> trackedVillagers = new LinkedHashSet<>();
+    private static final Map<UUID, Boolean> lastTradeState = new HashMap<>();
+    private static UUID currentVillagerUuid;
     private static boolean autoOpening = false;
     private int tickCounter;
     private int betterCrossbowCounter;
@@ -197,7 +197,6 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
                     .append(Text.literal("模式: " + AutoTradeConfigs.Trade.MODE.getOptionListValue().getDisplayName())));
         } else {
             trackedVillagers.clear();
-            trackedVillagerUuid = null;
             lastTradeState.clear();
             InfoUtils.sendVanillaMessage(Text.literal("自动交易已关闭").formatted(Formatting.RED));
         }
@@ -261,23 +260,24 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
             return;
         }
 
-        List<Integer> ids = new ArrayList<>(trackedVillagers);
-        ids.removeIf(id -> {
-            Entity entity = client.world.getEntityById(id);
+        List<UUID> uuids = new ArrayList<>(trackedVillagers);
+        uuids.removeIf(uuid -> {
+            Entity entity = client.world.getEntity(uuid);
             if (!(entity instanceof VillagerEntity)) {
                 return true;
             }
             return entity.isRemoved() || client.player.squaredDistanceTo(entity) > 8.0 * 8.0;
         });
-        trackedVillagers.retainAll(ids);
-        lastTradeState.keySet().removeIf(id -> !trackedVillagers.contains(id));
+        trackedVillagers.retainAll(uuids);
+        lastTradeState.keySet().removeIf(uuid -> !trackedVillagers.contains(uuid));
 
-        if (ids.isEmpty()) {
+        if (uuids.isEmpty()) {
             return;
         }
 
-        Entity target = client.world.getEntityById(ids.get(0));
+        Entity target = client.world.getEntity(uuids.get(0));
         if (target instanceof VillagerEntity villager && client.interactionManager != null) {
+            currentVillagerUuid = villager.getUuid();
             autoOpening = true;
             client.interactionManager.interactEntity(client.player, villager, Hand.MAIN_HAND);
             autoOpening = false;
@@ -288,65 +288,61 @@ public class AutoTrade implements ModInitializer, IKeybindProvider, IHotkeyCallb
         if (autoOpening || !(entity instanceof VillagerEntity)) {
             return;
         }
-        lastInteractedEntity = entity;
+        currentVillagerUuid = entity.getUuid();
 
         if (!AutoTradeConfigs.isEnabled() || !AutoTradeConfigs.isAutoMode()) {
             return;
         }
-        if (trackedVillagers.contains(entity.getId())) {
+        if (trackedVillagers.contains(entity.getUuid())) {
             return;
         }
         trackedVillagers.clear();
         lastTradeState.clear();
-        trackedVillagers.add(entity.getId());
-        trackedVillagerUuid = entity.getUuid();
+        trackedVillagers.add(entity.getUuid());
         InfoUtils.sendVanillaMessage(Text.literal("已标记为目标村民，将自动轮询交易（发光标记）").formatted(Formatting.GREEN));
     }
 
     public static boolean isHighlighted(Entity entity) {
-        return trackedVillagerUuid != null && trackedVillagerUuid.equals(entity.getUuid());
+        return trackedVillagers.contains(entity.getUuid());
     }
 
-    public static int getCurrentVillagerId() {
-        if (lastInteractedEntity instanceof VillagerEntity) {
-            return lastInteractedEntity.getId();
-        }
-        return -1;
+    public static UUID getCurrentVillagerUuid() {
+        return currentVillagerUuid;
     }
 
-    public static boolean isTracked(int villagerId) {
-        return trackedVillagers.contains(villagerId);
+    public static boolean isTracked(UUID villagerUuid) {
+        return trackedVillagers.contains(villagerUuid);
     }
 
-    public static void onVillagerBuying(int villagerId) {
-        if (villagerId < 0) {
+    public static void onVillagerBuying(UUID villagerUuid) {
+        if (villagerUuid == null) {
             return;
         }
-        lastTradeState.put(villagerId, true);
+        lastTradeState.put(villagerUuid, true);
     }
 
-    public static void onVillagerBoughtOut(int villagerId, String reason) {
-        if (villagerId < 0 || !trackedVillagers.contains(villagerId)) {
+    public static void onVillagerBoughtOut(UUID villagerUuid, String reason) {
+        if (villagerUuid == null || !trackedVillagers.contains(villagerUuid)) {
             InfoUtils.sendVanillaMessage(Text.literal("该村民的交易已全部买空")
                     .formatted(Formatting.YELLOW)
                     .append(Text.literal(reason.isEmpty() ? "" : "（" + reason + "）").formatted(Formatting.RED)));
             return;
         }
-        if (!Boolean.FALSE.equals(lastTradeState.get(villagerId))) {
-            lastTradeState.put(villagerId, false);
+        if (!Boolean.FALSE.equals(lastTradeState.get(villagerUuid))) {
+            lastTradeState.put(villagerUuid, false);
             InfoUtils.sendVanillaMessage(Text.literal("村民已买空，将继续按间隔轮询检查（补充背包后会自动继续）")
                     .formatted(Formatting.YELLOW)
                     .append(Text.literal(reason.isEmpty() ? "" : "（" + reason + "）").formatted(Formatting.RED)));
         }
     }
 
-    public static void onVillagerNoTrades(int villagerId) {
-        if (villagerId < 0 || !trackedVillagers.contains(villagerId)) {
+    public static void onVillagerNoTrades(UUID villagerUuid) {
+        if (villagerUuid == null || !trackedVillagers.contains(villagerUuid)) {
             InfoUtils.sendVanillaMessage(Text.literal("该村民没有匹配的交易").formatted(Formatting.RED));
             return;
         }
-        if (!Boolean.FALSE.equals(lastTradeState.get(villagerId))) {
-            lastTradeState.put(villagerId, false);
+        if (!Boolean.FALSE.equals(lastTradeState.get(villagerUuid))) {
+            lastTradeState.put(villagerUuid, false);
             InfoUtils.sendVanillaMessage(Text.literal("该村民没有匹配的交易，将继续按间隔轮询检查").formatted(Formatting.YELLOW));
         }
     }

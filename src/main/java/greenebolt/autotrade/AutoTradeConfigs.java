@@ -67,13 +67,17 @@ public class AutoTradeConfigs implements IConfigHandler {
                 "交易后丢弃输出物品", false,
                 "开启后交易得到的输出物品不会进入背包，而是直接丢在地上\n关闭则输出物品自动放进背包");
 
+        public static final ConfigBoolean TRADE_GUI = new ConfigBoolean(
+                "交易GUI", false,
+                "开启时自动交易会正常显示村民交易界面（每个交易周期会刷新，可随时手动关闭）；关闭时隐藏界面后台交易");
+
         public static final ConfigHotkey TOGGLE_KEY = new ConfigHotkey(
-                "自动交易开关键", "", KeybindSettings.DEFAULT,
-                "按下开启或关闭自动交易（默认未绑定）");
+                "自动交易开关键", "", KEYBIND_ANY_CONTEXT,
+                "按下开启或关闭自动交易（默认未绑定，游戏内和界面中均可触发）");
 
         public static final ConfigHotkey MODE_KEY = new ConfigHotkey(
-                "切换交易模式键", "", KeybindSettings.DEFAULT,
-                "在 单次交易 与 自动交易 之间切换（默认未绑定）");
+                "切换交易模式键", "", KEYBIND_ANY_CONTEXT,
+                "在 单次交易 与 自动交易 之间切换（默认未绑定，游戏内和界面中均可触发）");
 
         public static final ConfigBoolean BETTER_CROSSBOW = new ConfigBoolean(
                 "更NB的弩", false,
@@ -88,12 +92,20 @@ public class AutoTradeConfigs implements IConfigHandler {
                 "让 Item Scroller、Inventory Profiles Next 和 Tweakeroo 忽略指定潜影盒组件，配置文件位于 config/satella/ignored-components.txt");
 
         public static final ConfigInteger CRAFT_RESIDUE = new ConfigInteger(
-                "残余", 0, 0, 32,
+                "残余", 4, 0, 32,
                 "残差合成补料与切石补料时，若背包中某材料堆数量 P 满足 0.5*P < 该值，则跳过该堆\n单位：个");
 
         public static final ConfigInteger AUTOMATION_INTERVAL = new ConfigInteger(
-                "自动化周期", 3, 1, 64,
+                "自动化周期", 4, 1, 64,
                 "自动化每隔多少游戏刻执行一次合成/切石动作");
+
+        public static final ConfigOptionList CRAFT_FILL_MODE = new ConfigOptionList(
+                "合成填入材料模式", CraftFillMode.SIMULATED_CLICK,
+                "选择自动合成填入材料的方式：模拟点击或配方书");
+
+        public static final ConfigInteger RECIPE_FILL_ITERATIONS = new ConfigInteger(
+                "配方填入次数", 32, 1, 64,
+                "配方书模式下，每次自动化周期最多请求原版配方书填入材料多少次");
 
         public static final ConfigBoolean AUTOMATION = new ConfigBoolean(
                 "自动化开关", false,
@@ -142,12 +154,12 @@ public class AutoTradeConfigs implements IConfigHandler {
         /** 配置界面“交易”分类页 */
         public static final ImmutableList<IConfigBase> TRADE_OPTIONS = ImmutableList.of(
                 ENABLED, MODE, TICK_INTERVAL, TRADES_PER_SESSION, INPUT_ITEM_1, INPUT_ITEM_2, OUTPUT_ITEM,
-                DROP_OUTPUTS, TOGGLE_KEY, MODE_KEY);
+                DROP_OUTPUTS, TRADE_GUI, TOGGLE_KEY, MODE_KEY);
 
         /** 配置界面“自动化”分类页 */
         public static final ImmutableList<IConfigBase> AUTOMATION_OPTIONS = ImmutableList.of(
                 AUTOMATION, AUTOMATION_MODE, AUTOMATION_KEY, AUTOMATION_MODE_KEY, AUTOMATION_INTERVAL,
-                CRAFT_RESIDUE, STONECUTTING_INPUT, STONECUTTING_OUTPUT, GUI_DISPLAY);
+                CRAFT_FILL_MODE, RECIPE_FILL_ITERATIONS, CRAFT_RESIDUE, STONECUTTING_INPUT, STONECUTTING_OUTPUT, GUI_DISPLAY);
 
         /** 配置界面“杂项”分类页 */
         public static final ImmutableList<IConfigBase> MISC_OPTIONS = ImmutableList.of(

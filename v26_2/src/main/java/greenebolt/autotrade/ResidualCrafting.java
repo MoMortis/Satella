@@ -8,6 +8,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.display.RecipeDisplayId;
+
+import java.util.Objects;
 
 public final class ResidualCrafting {
     private ResidualCrafting() {}
@@ -17,7 +20,14 @@ public final class ResidualCrafting {
         RecipePattern recipe = RecipeStorage.getInstance().getSelectedRecipe();
         ItemStack result = recipe.getResult();
         ItemStack[] ingredients = recipe.getRecipeItems();
-        if (result.isEmpty() || ingredients.length > lastGridSlot - firstGridSlot + 1) return false;
+        if (result.isEmpty() || ingredients.length > lastGridSlot - firstGridSlot + 1) {
+            resetRecipeBookState();
+            return false;
+        }
+        if (AutoTradeConfigs.Trade.CRAFT_FILL_MODE.getOptionListValue() == CraftFillMode.RECIPE_BOOK) {
+            return craftWithRecipeBook(menu, minecraft, recipe, result);
+        }
+        resetRecipeBookState();
         boolean crafted = false;
         int limit = Math.max(1, iterations) * 1024;
         for (int iteration = 0; iteration < limit; iteration++) {
@@ -37,6 +47,64 @@ public final class ResidualCrafting {
             if (!gridChanged(menu, firstGridSlot, lastGridSlot, gridBefore)) return crafted;
         }
         return crafted;
+    }
+
+    private static AbstractContainerMenu recipeBookMenu;
+    private static RecipeDisplayId recipeBookId;
+    private static ItemStack recipeBookResult;
+
+    private static boolean craftWithRecipeBook(AbstractContainerMenu menu, Minecraft minecraft,
+                                                RecipePattern recipe, ItemStack result) {
+        recipe.storeIdFromClientRecipeBook(minecraft);
+        RecipeDisplayId recipeId = recipe.getNetworkRecipeId();
+        if (recipeId == null) {
+            resetRecipeBookState();
+            return false;
+        }
+
+        boolean changed = recipeBookMenu != menu
+                || !Objects.equals(recipeBookId, recipeId)
+                || recipeBookResult == null
+                || !ItemStack.isSameItemSameComponents(recipeBookResult, result);
+        if (changed) {
+            recipeBookMenu = menu;
+            recipeBookId = recipeId;
+            recipeBookResult = result.copy();
+        }
+
+        ItemStack output = menu.getSlot(0).getItem();
+        if (!output.isEmpty()) {
+            if (ItemStack.isSameItemSameComponents(output, recipeBookResult)) {
+                throwRecipeBookOutput(menu, minecraft);
+            }
+            return false;
+        }
+
+        int requests = AutoTradeConfigs.Trade.RECIPE_FILL_ITERATIONS.getIntegerValue();
+        // 与“配方填入次数”的配置含义一致：本周期连续发送指定次数的普通请求。
+        for (int i = 0; i < requests; i++) {
+            minecraft.gameMode.handlePlaceRecipe(menu.containerId, recipeId, false);
+        }
+        return false;
+    }
+
+    private static void throwRecipeBookOutput(AbstractContainerMenu menu, Minecraft minecraft) {
+        boolean previousSuppress = DropBlock.suppressInternal;
+        DropBlock.suppressInternal = true;
+        try {
+            click(minecraft, menu, 0, 1, ContainerInput.THROW);
+        } finally {
+            DropBlock.suppressInternal = previousSuppress;
+        }
+        if (!menu.getCarried().isEmpty()) {
+            returnCursorToInventoryOrDrop(menu, 1, 9, minecraft);
+        }
+    }
+
+    private static void resetRecipeBookState() {
+        recipeBookMenu = null;
+        recipeBookId = null;
+        recipeBookResult = null;
     }
 
     private static boolean prepare(AbstractContainerMenu menu, Minecraft minecraft, int first, int last, ItemStack[] ingredients) {
@@ -176,6 +244,9 @@ public final class ResidualCrafting {
             int source = (start + offset) % slotCount;
             scanCursor = source;
             if (tableComplete(deficit)) {
+                // 材料补满提前结束时，把游标回退到最后一个实际检查过的槽位，
+                // 让当前这个没检查过的槽位下一轮第一个被查，避免被跳过
+                scanCursor = (source - 1 + slotCount) % slotCount;
                 return;
             }
             if (source >= first && source <= last) {

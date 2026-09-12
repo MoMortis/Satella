@@ -19,6 +19,7 @@ import net.minecraft.village.TradedItem;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 交易执行逻辑（普通类，不属于 mixin，避免 mixin 把非 private 方法注入目标类）。
@@ -40,7 +41,7 @@ public class TradeExecutor {
         AutoTrade.tradeUsesLeft.clear();
         AutoTrade.tradeRefillCount.clear();
 
-        int villagerId = AutoTrade.getCurrentVillagerId();
+        UUID villagerUuid = AutoTrade.getCurrentVillagerUuid();
         int targetItemCount = 0;
         List<String> errors = new ArrayList<>();
         TradeEntry entry = TradeEntry.build(
@@ -73,11 +74,11 @@ public class TradeExecutor {
         }
 
         if (targetItemCount == 0) {
-            AutoTrade.onVillagerNoTrades(villagerId);
+            AutoTrade.onVillagerNoTrades(villagerUuid);
         } else if (AutoTrade.tradeUsesLeft.isEmpty()) {
-            AutoTrade.onVillagerBoughtOut(villagerId, String.join("，", errors));
+            AutoTrade.onVillagerBoughtOut(villagerUuid, String.join("，", errors));
         } else {
-            AutoTrade.onVillagerBuying(villagerId);
+            AutoTrade.onVillagerBuying(villagerUuid);
             InfoUtils.sendVanillaMessage(Text.literal("正在购买匹配的交易").formatted(Formatting.GREEN)
                     .append(Text.literal(errors.isEmpty() ? "" : "（" + String.join("，", errors) + "）").formatted(Formatting.RED)));
         }
